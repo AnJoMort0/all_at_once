@@ -1,0 +1,458 @@
+[
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v1/skeleton_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v1/skeleton_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v1/skeleton_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v1/skeleton_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v1/skeleton_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v2/skeleton_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v2/skeleton_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v2/skeleton_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v2/skeleton_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton1/v2/skeleton_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v1/skeleton2_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v1/skeleton2_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v1/skeleton2_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v1/skeleton2_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v1/skeleton2_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v2/skeleton2_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v2/skeleton2_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v2/skeleton2_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v2/skeleton2_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skeleton2/v2/skeleton2_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v1/skull_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v1/skull_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v1/skull_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v1/skull_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v1/skull_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v2/skull_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v2/skull_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v2/skull_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v2/skull_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/skull/v2/skull_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v1/vampire_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v1/vampire_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v1/vampire_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v1/vampire_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v1/vampire_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v2/vampire_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v2/vampire_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v2/vampire_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v2/vampire_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/monsters_idle/vampire/v2/vampire_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v1/priest1_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v1/priest1_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v1/priest1_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v1/priest1_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v1/priest1_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v2/priest1_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v2/priest1_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v2/priest1_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v2/priest1_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest1/v2/priest1_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v1/priest2_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v1/priest2_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v1/priest2_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v1/priest2_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v1/priest2_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v2/priest2_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v2/priest2_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v2/priest2_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v2/priest2_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest2/v2/priest2_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v1/priest3_v1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v1/priest3_v1_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v1/priest3_v1_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v1/priest3_v1_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v1/priest3_v1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v2/priest3_v2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v2/priest3_v2_1.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v2/priest3_v2_2.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v2/priest3_v2_3.png",
+      "images/animations/frames/characters/2d_pixel_dungeon/priests_idle/priest3/v2/priest3_v2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/arrow/arrow",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 32,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/arrow/arrow_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/arrow/arrow_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/arrow/arrow_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/arrow/arrow_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/box_1/box_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_1/box_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_1/box_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_1/box_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_1/box_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/box_2/box_2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_2/box_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_2/box_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_2/box_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/box_2/box_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_open",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_open_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_open_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_open_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/chest/chest_open_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/coin/coin",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/coin/coin_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/coin/coin_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/coin/coin_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/coin/coin_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flag/flag",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flag/flag_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flag/flag_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flag/flag_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flag/flag_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 32,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_2",
+    "count": 4,
+    "frame_width": 32,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flamethrower/flamethrower_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_3",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_3_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_3_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_3_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_3_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_4",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_4_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_4_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_4_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/flasks/flasks_4_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/keys/keys_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_1/mini_box_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_1/mini_box_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_1/mini_box_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_1/mini_box_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_1/mini_box_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_2/mini_box_2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_2/mini_box_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_2/mini_box_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_2/mini_box_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_box_2/mini_box_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_open",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_open_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_open_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_open_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/mini_chest/mini_chest_open_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/peaks/peaks",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/peaks/peaks_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/peaks/peaks_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/peaks/peaks_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/peaks/peaks_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_1",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_1_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_1_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_1_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_1_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_2",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_2_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_2_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_2_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/candlestick_2_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/torch/side_torch",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/side_torch_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/side_torch_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/side_torch_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/side_torch_4.png"
+    ]
+  },
+  {
+    "group": "images/animations/frames/world_objects/2d_pixel_dungeon/torch/torch",
+    "count": 4,
+    "frame_width": 16,
+    "frame_height": 16,
+    "frames": [
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/torch_1.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/torch_2.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/torch_3.png",
+      "images/animations/frames/world_objects/2d_pixel_dungeon/torch/torch_4.png"
+    ]
+  }
+]

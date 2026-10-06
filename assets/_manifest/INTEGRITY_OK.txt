@@ -1,0 +1,3 @@
+Integrity check passed for 7816 usable source files.
+All copied asset bytes match the uploaded originals.
+.DS_Store files omitted: 35.
