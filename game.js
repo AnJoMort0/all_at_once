@@ -1,12 +1,72 @@
-// ============================================================================
-// NULLMEADOW — v0.2
-// Overworld clicker + first Ghostlot Claimrun challenge.
-// ============================================================================
+/*
+===============================================================================
+NULLMEADOW — PROJECT CONTRACT + CANON — v0.4
+===============================================================================
+
+DEVELOPMENT RULES
+- The user supplies small feature ideas; expand them freely into a playable design.
+- Creative freedom is intentionally broad: mix art styles, genres, archetypes,
+  minigames, mechanics, libraries and dependencies whenever useful.
+- This project is intentionally becoming "all the games in one". Expect feature
+  bloat; keep systems modular enough that unrelated silly games can coexist.
+- Prefer the lowest-effort implementation that remains easy to extend.
+- Modify as few files as possible. Return ONLY files that actually changed.
+- Do not create bookkeeping/readme/asset-selection files merely for documentation.
+  Put useful canon, implementation notes and asset descriptions here in game.js.
+- Existing names become canon unless changing them materially improves the game.
+
+CURRENT WORLD CANON
+- Nullmeadow: the overworld/hub settlement.
+- Pip: the roaming player character who physically picks up loose resources.
+- The Crankhouse: central clickable building. Each crank ejects one Glimmer.
+- Glimmer: primary hub currency/resource, represented by the gold-resource sprite.
+- Ghostlots: locked building plots scattered around Nullmeadow. The nearest locked
+  Ghostlot becomes the Calling Lot.
+- Claimrun: the first embedded minigame. Pip auto-fires up-screen through a finite
+  procedural horde while shootable arithmetic walls descend toward him. Each wall
+  pair modifies VOLLEY, RATE or SPEED when crossed; shooting a positive number
+  increases it (+1 → +2), while shooting a negative number makes it more negative.
+  Claimrun difficulty scales from the number of previously claimed Ghostlots.
+- Valor: reward currency earned by winning Claimruns, represented by a shield icon.
+- A Calling Lot's Claimrun must be opened with a ONE-TIME Glimmer entry fee. Entry
+  costs rise with each claimed lot. If Pip loses after paying, retries for that lot
+  are free until the lot is claimed.
+- Winning permanently claims that Ghostlot, awards +1 Valor, and calls the next lot.
+- UI direction: deliberately dense/mobile-game-like, icon-heavy and future-proof.
+  Important icons explain themselves on hover (desktop) or tap (touch).
+
+ASSET NOTES live beside ASSETS below.
+===============================================================================
+*/
 
 const GAME_WIDTH = 720;
 const GAME_HEIGHT = 1280;
 const WORLD_SIZE = 2100;
-const SAVE_KEY = "nullmeadow-save-v2";
+const SAVE_KEY = "nullmeadow-save-v2"; // Keep old key so v0.2 saves migrate forward.
+
+// One-time Glimmer cost to open each successive Claimrun.
+const CLAIM_COSTS = [5, 12, 22, 36, 55, 80, 110, 150, 200, 260, 330];
+
+function claimCostForProgress(claimedCount) {
+    if (claimedCount < CLAIM_COSTS.length) return CLAIM_COSTS[claimedCount];
+    const extra = claimedCount - CLAIM_COSTS.length + 1;
+    return CLAIM_COSTS[CLAIM_COSTS.length - 1] + extra * 90;
+}
+
+function compactAmount(value) {
+    const n = Number(value) || 0;
+    if (Math.abs(n) < 1000) return String(n);
+    const units = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
+    for (const [size, suffix] of units) {
+        if (Math.abs(n) >= size) {
+            const scaled = n / size;
+            let formatted = scaled >= 100 ? scaled.toFixed(0) : scaled >= 10 ? scaled.toFixed(1) : scaled.toFixed(2);
+            formatted = formatted.replace(/\.00$/, "").replace(/(\.[0-9])0$/, "$1");
+            return formatted + suffix;
+        }
+    }
+    return String(n);
+}
 
 const ASSETS = {
     crankhouse: "assets/images/environment/buildings/tiny_swords/Blue Buildings/House1.png",
@@ -25,6 +85,15 @@ const ASSETS = {
     skeletonMove: "assets/images/spritesheets/enemies/enemy_animations/enemies-skeleton1_movement.png",
     arrow: "assets/images/projectiles/tiny_rpg_soldier_orc/Arrow01(32x32).png",
 
+    // Tiny Swords UI pack. These are intentionally mixed into the other art styles.
+    uiSword: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_05.png",     // games / combat
+    uiValor: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_06.png",     // shield = Valor
+    uiTown: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_07.png",      // world / Nullmeadow
+    uiBuild: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_01.png",     // axe = construction
+    uiCrossed: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_09.png",   // game archive
+    uiSettings: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_10.png",  // settings
+    uiInfo: "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_11.png",      // codex / explanations
+
     crankClick: "assets/audio/sfx/other/finger_click.wav",
     glimmerCollect: "assets/audio/sfx/items/gem_collect.wav",
     shot: "assets/audio/sfx/weapons/shot_muffled.wav",
@@ -38,7 +107,8 @@ function defaultSave() {
     return {
         glimmer: 0,
         valor: 0,
-        unlockedLots: []
+        unlockedLots: [],
+        openedClaimruns: [] // One-time Glimmer entry already paid for these lots.
     };
 }
 
@@ -71,6 +141,14 @@ class GameScene extends Phaser.Scene {
         this.load.image("rock2", ASSETS.rock2);
         this.load.image("fence", ASSETS.fence);
         this.load.image("arrow", ASSETS.arrow);
+
+        this.load.image("uiSword", ASSETS.uiSword);
+        this.load.image("uiValor", ASSETS.uiValor);
+        this.load.image("uiTown", ASSETS.uiTown);
+        this.load.image("uiBuild", ASSETS.uiBuild);
+        this.load.image("uiCrossed", ASSETS.uiCrossed);
+        this.load.image("uiSettings", ASSETS.uiSettings);
+        this.load.image("uiInfo", ASSETS.uiInfo);
 
         this.load.spritesheet("fieldTrees", ASSETS.treeStrip, {
             frameWidth: 256,
@@ -109,6 +187,8 @@ class GameScene extends Phaser.Scene {
     create() {
         this.worldCenter = new Phaser.Math.Vector2(WORLD_SIZE / 2, WORLD_SIZE / 2);
         this.saveData = this.registry.get("saveData") || loadSave();
+        if (!Array.isArray(this.saveData.openedClaimruns)) this.saveData.openedClaimruns = [];
+        if (!Array.isArray(this.saveData.unlockedLots)) this.saveData.unlockedLots = [];
         this.registry.set("saveData", this.saveData);
 
         this.glimmerOwned = this.saveData.glimmer || 0;
@@ -285,7 +365,7 @@ class GameScene extends Phaser.Scene {
             ease: "Sine.InOut"
         });
 
-        const call = this.add.text(lot.x, lot.y - lot.size / 2 - 70, "FIRST CLAIM", {
+        const call = this.add.text(lot.x, lot.y - lot.size / 2 - 70, "CALLING LOT", {
             fontFamily: "Arial",
             fontSize: "18px",
             fontStyle: "bold",
@@ -444,41 +524,56 @@ class GameScene extends Phaser.Scene {
     createActiveGhostlotPrompt() {
         this.ghostlotPrompt = null;
         this.challengeButton = null;
+        this.claimCostText = null;
+        this.claimStatusText = null;
+        this.claimCostIcon = null;
         if (!this.activeGhostlot) return;
 
         const lot = this.activeGhostlot;
-        const container = this.add.container(lot.x, lot.y - lot.size / 2 - 116)
+        const container = this.add.container(lot.x, lot.y - lot.size / 2 - 125)
             .setDepth(50000)
             .setVisible(false);
 
         const bubble = this.add.graphics();
-        bubble.fillStyle(0x111923, 0.96);
-        bubble.fillRoundedRect(-142, -58, 284, 116, 28);
+        bubble.fillStyle(0x111923, 0.97);
+        bubble.fillRoundedRect(-165, -67, 330, 134, 28);
         bubble.lineStyle(4, 0xffdf68, 0.92);
-        bubble.strokeRoundedRect(-142, -58, 284, 116, 28);
-        bubble.fillStyle(0x111923, 0.96);
-        bubble.fillTriangle(-16, 58, 16, 58, 0, 79);
+        bubble.strokeRoundedRect(-165, -67, 330, 134, 28);
+        bubble.fillStyle(0x111923, 0.97);
+        bubble.fillTriangle(-16, 67, 16, 67, 0, 89);
 
-        const label = this.add.text(-118, -33, "CLAIM THIS LOT", {
+        const label = this.add.text(-142, -45, "CLAIMRUN", {
             fontFamily: "Arial",
-            fontSize: "18px",
+            fontSize: "19px",
             fontStyle: "bold",
             color: "#fff3b0"
         });
 
-        const sub = this.add.text(-118, -4, "Fight for the deed", {
+        this.claimStatusText = this.add.text(-142, -14, "", {
             fontFamily: "Arial",
-            fontSize: "15px",
+            fontSize: "14px",
+            fontStyle: "bold",
             color: "#c8d0cc"
         });
 
-        const button = this.add.circle(84, 0, 39, 0xffd34f, 1)
+        this.claimCostIcon = this.add.image(-127, 31, "glimmer").setScale(0.22);
+        this.claimCostText = this.add.text(-98, 31, "", {
+            fontFamily: "Arial",
+            fontSize: "21px",
+            fontStyle: "bold",
+            color: "#ffe170"
+        }).setOrigin(0, 0.5);
+
+        const button = this.add.circle(105, 0, 43, 0xffd34f, 1)
             .setStrokeStyle(5, 0xffffff, 0.72)
             .setInteractive({ useHandCursor: true });
+        button.__blocksWorldInput = true;
 
-        const triangle = this.add.triangle(90, 0, -10, -15, -10, 15, 16, 0, 0x2b281b, 1);
-        container.add([bubble, label, sub, button, triangle]);
+        const triangle = this.add.triangle(112, 0, -11, -17, -11, 17, 18, 0, 0x2b281b, 1);
+        container.add([bubble, label, this.claimStatusText, this.claimCostIcon, this.claimCostText, button, triangle]);
 
+        button.on("pointerover", () => this.tweens.add({ targets: button, scaleX: 1.08, scaleY: 1.08, duration: 80 }));
+        button.on("pointerout", () => this.tweens.add({ targets: button, scaleX: 1, scaleY: 1, duration: 80 }));
         button.on("pointerdown", (pointer, localX, localY, event) => {
             if (event && event.stopPropagation) event.stopPropagation();
             this.beginClaimrun();
@@ -486,6 +581,28 @@ class GameScene extends Phaser.Scene {
 
         this.ghostlotPrompt = container;
         this.challengeButton = button;
+        this.refreshGhostlotPrompt();
+    }
+
+    refreshGhostlotPrompt() {
+        if (!this.activeGhostlot || !this.ghostlotPrompt) return;
+        const lotId = this.activeGhostlot.id;
+        const opened = this.saveData.openedClaimruns.includes(lotId);
+        const cost = claimCostForProgress(this.saveData.unlockedLots.length);
+        const canAfford = this.glimmerOwned >= cost;
+
+        if (opened) {
+            this.claimStatusText.setText("ENTRY PAID • FIGHT FOR THE DEED").setColor("#a8f0b8");
+            this.claimCostText.setText("READY").setColor("#a8f0b8");
+            this.claimCostIcon.setTexture("uiSword").setScale(0.42);
+            this.challengeButton.setFillStyle(0x71e58e, 1);
+        } else {
+            this.claimStatusText.setText(canAfford ? "PAY ONCE • RETRIES STAY OPEN" : "NOT ENOUGH GLIMMER");
+            this.claimStatusText.setColor(canAfford ? "#c8d0cc" : "#ff9ba2");
+            this.claimCostText.setText(String(cost)).setColor(canAfford ? "#ffe170" : "#ff9ba2");
+            this.claimCostIcon.setTexture("glimmer").setScale(0.22);
+            this.challengeButton.setFillStyle(canAfford ? 0xffd34f : 0x7c5960, 1);
+        }
     }
 
     createInput() {
@@ -498,10 +615,8 @@ class GameScene extends Phaser.Scene {
         });
 
         this.input.on("pointerdown", (pointer, currentlyOver) => {
-            if (currentlyOver && (
-                currentlyOver.includes(this.crankhouse)
-                || currentlyOver.includes(this.challengeButton)
-            )) return;
+            if (currentlyOver && currentlyOver.some(obj => obj && obj.__blocksWorldInput)) return;
+            if (currentlyOver && currentlyOver.includes(this.crankhouse)) return;
             if (pointer.y < 145 || pointer.y > GAME_HEIGHT - 100) return;
 
             const world = pointer.positionToCamera(this.cameras.main);
@@ -514,66 +629,192 @@ class GameScene extends Phaser.Scene {
     }
 
     createHUD() {
-        const hud = this.add.container(0, 0).setDepth(100000).setScrollFactor(0);
-        const panel = this.add.graphics();
-        panel.fillStyle(0x111923, 0.90);
-        panel.fillRoundedRect(18, 18, 684, 112, 24);
-        panel.lineStyle(3, 0xffffff, 0.10);
-        panel.strokeRoundedRect(18, 18, 684, 112, 24);
-        hud.add(panel);
+        // HUD is intentionally a little excessive: this is the hub for many future games.
+        this.hudRoot = this.add.container(0, 0).setDepth(100000).setScrollFactor(0);
 
-        hud.add(this.add.text(42, 34, "NULLMEADOW", {
+        const top = this.add.graphics();
+        top.fillStyle(0x0c121a, 0.94);
+        top.fillRoundedRect(14, 14, 692, 116, 24);
+        top.lineStyle(3, 0xffffff, 0.10);
+        top.strokeRoundedRect(14, 14, 692, 116, 24);
+        this.hudRoot.add(top);
+
+        this.hudRoot.add(this.add.text(34, 28, "NULLMEADOW", {
             fontFamily: "Arial",
-            fontSize: "23px",
+            fontSize: "19px",
             fontStyle: "bold",
             color: "#dbe9bc"
         }));
-
-        this.glimmerHud = this.add.text(42, 73, `GLIMMER  ${this.glimmerOwned}`, {
+        this.hudRoot.add(this.add.text(34, 51, "HUB // 001", {
             fontFamily: "Arial",
-            fontSize: "27px",
+            fontSize: "11px",
             fontStyle: "bold",
-            color: "#ffd75f"
+            color: "#687789"
+        }));
+
+        // Wallet: icons carry the currency identity; names live in tooltips instead of labels.
+        this.glimmerHud = this.createCurrencyChip(215, 72, "glimmer", 0.30, "Glimmer",
+            "Cranked out by the Crankhouse. Used to open Claimruns and future Nullmeadow systems.");
+        this.valorHud = this.createCurrencyChip(340, 72, "uiValor", 0.54, "Valor",
+            "Won by conquering Ghostlot games. Its purpose is intentionally suspicious for now.");
+
+        // Reserved currency sockets make later currencies cheap to add without redesigning the bar.
+        this.createFutureCurrencySocket(435, 72, "Currency socket", "Reserved for whatever economy gets stapled on next.");
+        this.createFutureCurrencySocket(489, 72, "Currency socket", "Another future wallet slot. Of course there will be more currencies.");
+
+        // Loose Glimmer indicator: icon + downward arrow rather than another named counter.
+        const looseBg = this.add.graphics();
+        looseBg.fillStyle(0x1a2230, 0.90);
+        looseBg.fillRoundedRect(526, 38, 155, 68, 18);
+        looseBg.lineStyle(2, 0xffffff, 0.08);
+        looseBg.strokeRoundedRect(526, 38, 155, 68, 18);
+        this.hudRoot.add(looseBg);
+        const looseIcon = this.add.image(554, 70, "glimmer").setScale(0.23);
+        looseIcon.__blocksWorldInput = true;
+        this.hudRoot.add(looseIcon);
+        this.looseHud = this.add.text(581, 69, `↓ ${this.glimmerLoose.length}`, {
+            fontFamily: "Arial", fontSize: "22px", fontStyle: "bold", color: "#ffffff"
+        }).setOrigin(0, 0.5);
+        this.hudRoot.add(this.looseHud);
+        this.attachTooltip(looseIcon, "Loose Glimmer", "Glimmer currently lying in the world. Pip must physically collect it.");
+
+        // Right-side app rail. Some buttons are intentionally placeholders for the future mega-game UI.
+        const rail = this.add.graphics();
+        rail.fillStyle(0x0c121a, 0.84);
+        rail.fillRoundedRect(635, 154, 70, 390, 24);
+        rail.lineStyle(2, 0xffffff, 0.08);
+        rail.strokeRoundedRect(635, 154, 70, 390, 24);
+        this.hudRoot.add(rail);
+
+        this.createHudIconButton(670, 194, "uiTown", "Nullmeadow", "The current hub world. Buildings, resources and increasingly questionable systems live here.", false);
+        this.createHudIconButton(670, 265, "uiCrossed", "Game Cabinet", "Embedded games will accumulate here. Claimrun is Game #001.", false);
+        this.createHudIconButton(670, 336, "uiBuild", "Build", "Construction is reserved for claimed Ghostlots. Nothing can be built yet.", true);
+        this.createHudIconButton(670, 407, "uiInfo", "Codex", "Names, mechanics and discoveries will eventually collect here.", true);
+        this.createHudIconButton(670, 478, "uiSettings", "Settings", "A future home for audio, accessibility and other switches.", true);
+
+        // Bottom objective dock: always exposes the next actionable loop.
+        const objectiveBg = this.add.graphics();
+        objectiveBg.fillStyle(0x0c121a, 0.90);
+        objectiveBg.fillRoundedRect(20, GAME_HEIGHT - 104, 680, 76, 20);
+        objectiveBg.lineStyle(3, 0xffffff, 0.08);
+        objectiveBg.strokeRoundedRect(20, GAME_HEIGHT - 104, 680, 76, 20);
+        this.hudRoot.add(objectiveBg);
+
+        const objectiveIcon = this.add.image(55, GAME_HEIGHT - 66, "uiSword").setScale(0.46);
+        objectiveIcon.__blocksWorldInput = true;
+        this.hudRoot.add(objectiveIcon);
+        this.objectiveText = this.add.text(92, GAME_HEIGHT - 82, "", {
+            fontFamily: "Arial", fontSize: "16px", fontStyle: "bold", color: "#eef3e4"
         });
-        hud.add(this.glimmerHud);
+        this.hudRoot.add(this.objectiveText);
+        this.objectiveSubText = this.add.text(92, GAME_HEIGHT - 57, "", {
+            fontFamily: "Arial", fontSize: "12px", fontStyle: "bold", color: "#94a2ae"
+        });
+        this.hudRoot.add(this.objectiveSubText);
+        this.attachTooltip(objectiveIcon, "Current objective", "This dock follows the next useful thing Pip can do in the hub.");
 
-        this.valorHud = this.add.text(342, 73, `VALOR  ${this.saveData.valor || 0}`, {
-            fontFamily: "Arial",
-            fontSize: "27px",
-            fontStyle: "bold",
-            color: "#87e8ff"
-        }).setOrigin(0.5, 0);
-        hud.add(this.valorHud);
+        this.createHudTooltipLayer();
+        this.updateHUD();
+    }
 
-        hud.add(this.add.text(676, 48, "ON GROUND", {
-            fontFamily: "Arial",
-            fontSize: "13px",
-            fontStyle: "bold",
-            color: "#9eac9a"
-        }).setOrigin(1, 0.5));
+    createCurrencyChip(x, y, texture, iconScale, title, description) {
+        const bg = this.add.rectangle(x, y, 118, 62, 0x1a2230, 0.94)
+            .setStrokeStyle(2, 0xffffff, 0.08)
+            .setInteractive({ useHandCursor: true });
+        bg.__blocksWorldInput = true;
+        this.hudRoot.add(bg);
 
-        this.looseHud = this.add.text(676, 82, String(this.glimmerLoose.length), {
-            fontFamily: "Arial",
-            fontSize: "28px",
-            fontStyle: "bold",
-            color: "#ffffff"
-        }).setOrigin(1, 0.5);
-        hud.add(this.looseHud);
+        const icon = this.add.image(x - 35, y, texture).setScale(iconScale);
+        this.hudRoot.add(icon);
 
-        const helpBg = this.add.graphics().setDepth(99999).setScrollFactor(0);
-        helpBg.fillStyle(0x10161d, 0.82);
-        helpBg.fillRoundedRect(28, GAME_HEIGHT - 86, GAME_WIDTH - 56, 58, 18);
+        const amount = this.add.text(x - 4, y, "0", {
+            fontFamily: "Arial", fontSize: "26px", fontStyle: "bold", color: "#ffffff"
+        }).setOrigin(0, 0.5);
+        this.hudRoot.add(amount);
+        this.attachTooltip(bg, title, description);
+        return amount;
+    }
 
-        this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 57,
-            "MOVE: WASD / ARROWS / TAP     •     CRANK: CLICK BUILDING     •     FIND THE CALLING LOT",
-            {
-                fontFamily: "Arial",
-                fontSize: "13px",
-                fontStyle: "bold",
-                color: "#e7eadf",
-                align: "center"
+    createFutureCurrencySocket(x, y, title, description) {
+        const bg = this.add.circle(x, y, 27, 0x161e29, 0.92)
+            .setStrokeStyle(2, 0xffffff, 0.10)
+            .setInteractive({ useHandCursor: true });
+        bg.__blocksWorldInput = true;
+        this.hudRoot.add(bg);
+        const q = this.add.text(x, y - 1, "?", {
+            fontFamily: "Arial", fontSize: "23px", fontStyle: "bold", color: "#596778"
+        }).setOrigin(0.5);
+        this.hudRoot.add(q);
+        this.attachTooltip(bg, title, description);
+    }
+
+    createHudIconButton(x, y, texture, title, description, disabled = false) {
+        const bg = this.add.circle(x, y, 26, disabled ? 0x171d25 : 0x263449, disabled ? 0.78 : 0.96)
+            .setStrokeStyle(2, disabled ? 0xffffff : 0xffdc68, disabled ? 0.08 : 0.22)
+            .setInteractive({ useHandCursor: true });
+        bg.__blocksWorldInput = true;
+        this.hudRoot.add(bg);
+
+        const icon = this.add.image(x, y, texture).setScale(0.52).setAlpha(disabled ? 0.38 : 0.92);
+        this.hudRoot.add(icon);
+
+        bg.on("pointerover", () => {
+            this.tweens.add({ targets: [bg, icon], scaleX: 1.08, scaleY: 1.08, duration: 70 });
+        });
+        bg.on("pointerout", () => {
+            this.tweens.add({ targets: [bg, icon], scaleX: 1, scaleY: 1, duration: 70 });
+        });
+        this.attachTooltip(bg, title + (disabled ? " • LOCKED" : ""), description);
+        return bg;
+    }
+
+    createHudTooltipLayer() {
+        // Created after the other HUD pieces so explanations always render on top.
+        this.tooltipBox = this.add.container(0, 0).setDepth(120000).setScrollFactor(0).setVisible(false);
+        const bg = this.add.graphics();
+        bg.fillStyle(0x070b11, 0.97);
+        bg.fillRoundedRect(0, 0, 310, 112, 16);
+        bg.lineStyle(2, 0xffdf68, 0.45);
+        bg.strokeRoundedRect(0, 0, 310, 112, 16);
+        this.tooltipTitle = this.add.text(16, 13, "", {
+            fontFamily: "Arial", fontSize: "17px", fontStyle: "bold", color: "#fff0a2"
+        });
+        this.tooltipBody = this.add.text(16, 39, "", {
+            fontFamily: "Arial", fontSize: "13px", color: "#c9d1dc", wordWrap: { width: 278 }
+        });
+        this.tooltipBox.add([bg, this.tooltipTitle, this.tooltipBody]);
+        this.tooltipHideEvent = null;
+    }
+
+    attachTooltip(target, title, description) {
+        if (!target.input) target.setInteractive({ useHandCursor: true });
+        target.__blocksWorldInput = true;
+        const show = (pointer, sticky) => {
+            if (!this.tooltipBox) return;
+            this.tooltipTitle.setText(title);
+            this.tooltipBody.setText(description);
+            const px = Phaser.Math.Clamp((pointer?.x ?? 360) - 155, 16, GAME_WIDTH - 326);
+            const py = Phaser.Math.Clamp((pointer?.y ?? 220) + 24, 138, GAME_HEIGHT - 236);
+            this.tooltipBox.setPosition(px, py).setVisible(true);
+            if (this.tooltipHideEvent) {
+                this.tooltipHideEvent.remove(false);
+                this.tooltipHideEvent = null;
             }
-        ).setOrigin(0.5).setScrollFactor(0).setDepth(100000).setAlpha(0.84);
+            if (sticky) {
+                this.tooltipHideEvent = this.time.delayedCall(2500, () => {
+                    if (this.tooltipBox) this.tooltipBox.setVisible(false);
+                    this.tooltipHideEvent = null;
+                });
+            }
+        };
+        target.on("pointerover", pointer => show(pointer, false));
+        target.on("pointerout", () => {
+            if (!this.tooltipHideEvent && this.tooltipBox) this.tooltipBox.setVisible(false);
+        });
+        target.on("pointerdown", (pointer, localX, localY, event) => {
+            if (event && event.stopPropagation) event.stopPropagation();
+            show(pointer, true); // Touch-friendly explanation bubble.
+        });
     }
 
     generateGlimmer() {
@@ -658,12 +899,60 @@ class GameScene extends Phaser.Scene {
     }
 
     beginClaimrun() {
-        if (!this.activeGhostlot) return;
+        if (!this.activeGhostlot || this.claimrunLaunching) return;
+
+        const lotId = this.activeGhostlot.id;
+        const opened = this.saveData.openedClaimruns.includes(lotId);
+        const cost = claimCostForProgress(this.saveData.unlockedLots.length);
+
+        if (!opened) {
+            if (this.glimmerOwned < cost) {
+                const missing = cost - this.glimmerOwned;
+                try { this.sound.play("powerDown", { volume: 0.18 }); } catch (_) {}
+                this.floatText(this.activeGhostlot.x, this.activeGhostlot.y - 80, `NEED ${missing} MORE`, "#ff9ba2");
+                this.showHudToast(`Need ${missing} more Glimmer to open this Claimrun.`);
+                return;
+            }
+
+            this.glimmerOwned -= cost;
+            this.saveData.glimmer = this.glimmerOwned;
+            this.saveData.openedClaimruns.push(lotId);
+            persistSave(this.saveData);
+            this.registry.set("saveData", this.saveData);
+            this.updateHUD();
+            this.refreshGhostlotPrompt();
+            this.floatText(this.activeGhostlot.x, this.activeGhostlot.y - 80, `-${cost}`, "#ffe170");
+        }
+
+        this.claimrunLaunching = true;
         this.moveTarget = null;
         try { this.sound.play("confirm", { volume: 0.30 }); } catch (_) {}
         this.cameras.main.fadeOut(260, 255, 219, 88);
         this.time.delayedCall(285, () => {
-            this.scene.start("ClaimRunScene", { lotId: this.activeGhostlot.id });
+            this.scene.start("ClaimRunScene", { lotId });
+        });
+    }
+
+    showHudToast(message) {
+        if (this.hudToast && this.hudToast.active) this.hudToast.destroy();
+        const toast = this.add.text(GAME_WIDTH / 2, 154, message, {
+            fontFamily: "Arial",
+            fontSize: "15px",
+            fontStyle: "bold",
+            color: "#fff3f4",
+            backgroundColor: "#7a3540",
+            padding: { x: 14, y: 9 },
+            align: "center"
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(130000);
+        toast.__blocksWorldInput = true;
+        this.hudToast = toast;
+        this.tweens.add({
+            targets: toast,
+            y: 166,
+            alpha: 0,
+            delay: 1500,
+            duration: 350,
+            onComplete: () => toast.destroy()
         });
     }
 
@@ -708,9 +997,23 @@ class GameScene extends Phaser.Scene {
 
     updateHUD() {
         if (!this.glimmerHud) return;
-        this.glimmerHud.setText(`GLIMMER  ${this.glimmerOwned}`);
-        this.valorHud.setText(`VALOR  ${this.saveData.valor || 0}`);
-        this.looseHud.setText(String(this.glimmerLoose.length));
+        this.glimmerHud.setText(compactAmount(this.glimmerOwned));
+        this.valorHud.setText(compactAmount(this.saveData.valor || 0));
+        this.looseHud.setText(`↓ ${this.glimmerLoose.length}`);
+
+        if (this.activeGhostlot && this.objectiveText) {
+            const opened = this.saveData.openedClaimruns.includes(this.activeGhostlot.id);
+            const cost = claimCostForProgress(this.saveData.unlockedLots.length);
+            this.objectiveText.setText(`CALLING // ${this.activeGhostlot.id.toUpperCase()}`);
+            this.objectiveSubText.setText(opened
+                ? "Entry paid • walk onto the lot and launch Claimrun"
+                : `Walk onto the lot • Claimrun entry: ${cost} Glimmer`);
+        } else if (this.objectiveText) {
+            this.objectiveText.setText("NULLMEADOW // ALL CURRENT LOTS CLAIMED");
+            this.objectiveSubText.setText("The hub is waiting for another terrible idea.");
+        }
+
+        this.refreshGhostlotPrompt();
     }
 
     updateGhostlotPrompt() {
@@ -718,6 +1021,7 @@ class GameScene extends Phaser.Scene {
         const lot = this.activeGhostlot;
         const inside = Phaser.Math.Distance.Between(this.player.x, this.player.y, lot.x, lot.y) < Math.max(112, lot.size * 0.72);
         this.ghostlotPrompt.setVisible(inside);
+        if (inside) this.refreshGhostlotPrompt();
     }
 
     update() {
@@ -797,11 +1101,31 @@ class ClaimRunScene extends Phaser.Scene {
         this.saveData = this.registry.get("saveData") || loadSave();
         this.registry.set("saveData", this.saveData);
 
-        this.totalEnemies = 22;
+        // Claimrun is procedural. Difficulty is based on successful claims, so retries
+        // stay on the same tier while every newly claimed Ghostlot escalates the next run.
+        this.difficulty = Math.max(1, (this.saveData.unlockedLots || []).length + 1);
+        this.totalEnemies = 16 + this.difficulty * 5 + Math.floor(Math.pow(this.difficulty, 1.12) * 1.35);
+        this.totalGatePairs = 3 + Math.floor((this.difficulty - 1) * 0.65);
+        this.enemySpawnDelay = Math.max(285, 660 - (this.difficulty - 1) * 30);
+        this.enemyBaseSpeed = 76 + (this.difficulty - 1) * 6.5;
+        this.enemyBaseHp = 1 + Math.floor((this.difficulty - 1) / 4);
+        this.gateSpeed = 120 + Math.min(62, (this.difficulty - 1) * 5.5);
+        this.gateSpawnDelay = Math.max(2250, 3500 - (this.difficulty - 1) * 105);
+
         this.spawnedEnemies = 0;
         this.defeatedEnemies = 0;
-        this.integrity = 5;
-        this.fireLevel = 1;
+        this.integrityMax = 5;
+        this.integrity = this.integrityMax;
+        this.spawnedGatePairs = 0;
+        this.resolvedGatePairs = 0;
+        this.gatePairCounter = 0;
+        this.gatePairs = new Map();
+
+        // The three arithmetic stats modified by walls.
+        this.volley = 1;      // projectiles per shot
+        this.rateTier = 0;    // each tier changes firing interval by ~9%
+        this.speedTier = 0;   // each tier changes projectile speed by 55 px/s
+
         this.challengeOver = false;
         this.nextShotAt = 0;
         this.playerTargetX = GAME_WIDTH / 2;
@@ -811,18 +1135,13 @@ class ClaimRunScene extends Phaser.Scene {
         this.createArena();
         this.createChallengePlayer();
         this.createChallengeGroups();
-        this.createGates();
         this.createChallengeHUD();
         this.createChallengeInput();
-
-        this.enemySpawnEvent = this.time.addEvent({
-            delay: 610,
-            repeat: this.totalEnemies - 1,
-            callback: () => this.spawnEnemy()
-        });
+        this.startProceduralRun();
 
         this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
         this.physics.add.overlap(this.bullets, this.gates, this.hitGate, null, this);
+        this.physics.add.overlap(this.challengePlayer, this.gates, this.crossGate, null, this);
 
         this.cameras.main.fadeIn(300, 255, 219, 88);
     }
@@ -843,10 +1162,16 @@ class ClaimRunScene extends Phaser.Scene {
             g.lineBetween(82, y, GAME_WIDTH - 82, y);
         }
 
+        // Player/fence line.
         g.fillStyle(0xffd34f, 0.10);
         g.fillRect(80, 1010, GAME_WIDTH - 160, 130);
         g.lineStyle(4, 0xffd34f, 0.25);
         g.lineBetween(80, 1010, GAME_WIDTH - 80, 1010);
+
+        // Tiny fake perspective rails help sell the terrible mobile-ad aesthetic.
+        g.lineStyle(3, 0x88a5c2, 0.10);
+        g.lineBetween(80, 1010, 210, 138);
+        g.lineBetween(GAME_WIDTH - 80, 1010, 510, 138);
     }
 
     createChallengePlayer() {
@@ -871,110 +1196,305 @@ class ClaimRunScene extends Phaser.Scene {
     createChallengeGroups() {
         this.bullets = this.physics.add.group({ allowGravity: false });
         this.enemies = this.physics.add.group({ allowGravity: false });
-        this.gates = this.physics.add.group({ allowGravity: false, immovable: true });
+        this.gates = this.physics.add.group({ allowGravity: false });
     }
 
-    createGates() {
-        this.createGatePair(760, false, 1);
-        this.createGatePair(590, true, 2);
-        this.createGatePair(420, false, 3);
+    startProceduralRun() {
+        // Spawn enemies continuously in increasingly chunky horde ticks.
+        this.enemySpawnEvent = this.time.addEvent({
+            delay: this.enemySpawnDelay,
+            loop: true,
+            callback: () => this.spawnEnemyTick()
+        });
+        this.spawnEnemyTick();
+
+        // Gate pairs are generated at runtime: one positive, one negative, same stat.
+        // Their values mutate every time a projectile hits them.
+        this.time.delayedCall(650, () => {
+            if (!this.challengeOver) this.spawnGatePair();
+        });
+
+        this.gateSpawnEvent = this.time.addEvent({
+            delay: this.gateSpawnDelay,
+            loop: true,
+            callback: () => {
+                if (this.spawnedGatePairs < this.totalGatePairs) this.spawnGatePair();
+                if (this.spawnedGatePairs >= this.totalGatePairs && this.gateSpawnEvent) {
+                    this.gateSpawnEvent.remove(false);
+                }
+            }
+        });
     }
 
-    createGatePair(y, reversed, row) {
-        const leftX = 210;
-        const rightX = 510;
+    spawnEnemyTick() {
+        if (this.challengeOver || this.spawnedEnemies >= this.totalEnemies) {
+            if (this.enemySpawnEvent) this.enemySpawnEvent.remove(false);
+            return;
+        }
+
+        let batch = 1;
+        if (this.difficulty >= 4 && Math.random() < Math.min(0.60, 0.18 + this.difficulty * 0.025)) batch++;
+        if (this.difficulty >= 8 && Math.random() < Math.min(0.38, 0.08 + this.difficulty * 0.018)) batch++;
+        batch = Math.min(batch, this.totalEnemies - this.spawnedEnemies);
+
+        for (let i = 0; i < batch; i++) {
+            this.time.delayedCall(i * 95, () => this.spawnEnemy());
+        }
+    }
+
+    spawnEnemy() {
+        if (this.challengeOver || this.spawnedEnemies >= this.totalEnemies) return;
+        this.spawnedEnemies++;
+
+        const progress = this.spawnedEnemies / this.totalEnemies;
+        const x = Phaser.Math.Between(100, GAME_WIDTH - 100);
+        const eliteChance = Math.min(0.34, 0.05 + this.difficulty * 0.022 + progress * 0.08);
+        const elite = Math.random() < eliteChance;
+        const hp = this.enemyBaseHp + (elite ? 1 : 0);
+        const speed = Math.min(250,
+            this.enemyBaseSpeed + Phaser.Math.Between(-7, 24) + progress * (24 + this.difficulty * 1.6)
+        );
+
+        const enemy = this.enemies.create(x, 160, "skeletonMove", 0)
+            .setScale(elite ? 2.55 : 2.20)
+            .setDepth(700);
+
+        enemy.play("skeleton-move");
+        enemy.body.setAllowGravity(false);
+        enemy.body.setSize(22, 26).setOffset(5, 4);
+        enemy.setVelocityY(speed);
+        enemy.__hp = hp;
+        enemy.__maxHp = hp;
+        enemy.__resolved = false;
+        enemy.__elite = elite;
+        if (elite) enemy.setTint(0xffd870);
+    }
+
+    spawnGatePair() {
+        if (this.challengeOver || this.spawnedGatePairs >= this.totalGatePairs) return;
+
+        this.spawnedGatePairs++;
+        this.gatePairCounter++;
+        const pairId = `wall-${this.gatePairCounter}`;
+        const effects = ["VOLLEY", "RATE", "SPEED"];
+        const effect = effects[Phaser.Math.Between(0, effects.length - 1)];
+
+        // Later runs can begin with larger numbers, especially on the bad side.
+        const tier = 1 + Math.floor((this.difficulty - 1) / 4);
+        const positiveStart = Phaser.Math.Between(1, Math.min(3, tier));
+        const negativeStart = -Phaser.Math.Between(1, Math.min(4, tier + (this.difficulty >= 7 ? 1 : 0)));
+        const reversed = Math.random() < 0.5;
+
+        const leftX = 217.5;
+        const rightX = 502.5;
         const positiveX = reversed ? rightX : leftX;
         const negativeX = reversed ? leftX : rightX;
+        const y = 176;
 
-        this.createGate(positiveX, y, "positive", `gate-${row}-plus`);
-        this.createGate(negativeX, y, "negative", `gate-${row}-minus`);
+        const pair = { id: pairId, resolved: false, gates: [] };
+        this.gatePairs.set(pairId, pair);
+        pair.gates.push(this.createGate(positiveX, y, positiveStart, effect, pairId));
+        pair.gates.push(this.createGate(negativeX, y, negativeStart, effect, pairId));
+        this.updateChallengeHUD();
     }
 
-    createGate(x, y, type, id) {
-        const positive = type === "positive";
-        const gate = this.add.rectangle(x, y, 230, 76, positive ? 0x4adf83 : 0xff5964, 0.20)
-            .setStrokeStyle(5, positive ? 0x72ff9d : 0xff7d86, 0.88)
-            .setDepth(400);
+    createGate(x, y, value, effect, pairId) {
+        const positive = value > 0;
+        const gate = this.add.rectangle(x, y, 275, 86, positive ? 0x3dd878 : 0xf1515c, 0.25)
+            .setStrokeStyle(6, positive ? 0x74ff9f : 0xff7b84, 0.96)
+            .setDepth(1200);
 
         this.physics.add.existing(gate);
         gate.body.setAllowGravity(false);
         gate.body.setImmovable(true);
-        gate.body.moves = false;
-        gate.__type = type;
-        gate.__id = id;
-        gate.__charge = 0;
-        gate.__threshold = positive ? 4 : 3;
+        gate.body.setVelocityY(this.gateSpeed);
+        gate.__pairId = pairId;
+        gate.__effect = effect;
+        gate.__value = value;
+        gate.__positive = positive;
+        gate.__resolved = false;
 
-        gate.__text = this.add.text(x, y - 7, positive ? "+ FIRE" : "- FIRE", {
+        gate.__valueText = this.add.text(x, y - 10, this.formatGateValue(value), {
             fontFamily: "Arial",
-            fontSize: "23px",
+            fontSize: "34px",
             fontStyle: "bold",
-            color: positive ? "#b9ffd0" : "#ffd1d5",
+            color: positive ? "#c9ffda" : "#ffd0d4",
             stroke: "#101522",
-            strokeThickness: 5
-        }).setOrigin(0.5).setDepth(401);
+            strokeThickness: 6
+        }).setOrigin(0.5).setDepth(1202);
 
-        gate.__meter = this.add.text(x, y + 22, `0 / ${gate.__threshold}`, {
+        gate.__effectText = this.add.text(x, y + 25, effect, {
             fontFamily: "Arial",
-            fontSize: "14px",
+            fontSize: "15px",
             fontStyle: "bold",
             color: "#ffffff"
-        }).setOrigin(0.5).setDepth(401).setAlpha(0.82);
+        }).setOrigin(0.5).setDepth(1202).setAlpha(0.9);
+
+        // Cheap moving-wall bars: no asset needed, but visually reads more like a gate.
+        gate.__bars = [-92, -46, 0, 46, 92].map(offset =>
+            this.add.rectangle(x + offset, y, 5, 70, positive ? 0xb2ffc9 : 0xffb0b7, 0.24)
+                .setDepth(1201)
+        );
 
         this.gates.add(gate);
+        return gate;
+    }
+
+    formatGateValue(value) {
+        return value > 0 ? `+${value}` : String(value);
+    }
+
+    refreshGateVisual(gate) {
+        if (!gate || !gate.active) return;
+        gate.__valueText.setText(this.formatGateValue(gate.__value));
+    }
+
+    syncGateVisual(gate) {
+        if (!gate.active) return;
+        gate.__valueText.setPosition(gate.x, gate.y - 10);
+        gate.__effectText.setPosition(gate.x, gate.y + 25);
+        gate.__bars.forEach((bar, index) => {
+            if (bar.active) bar.setPosition(gate.x + [-92, -46, 0, 46, 92][index], gate.y);
+        });
+    }
+
+    destroyGate(gate) {
+        if (!gate) return;
+        if (gate.__valueText?.active) gate.__valueText.destroy();
+        if (gate.__effectText?.active) gate.__effectText.destroy();
+        for (const bar of gate.__bars || []) if (bar.active) bar.destroy();
+        if (gate.active) gate.destroy();
+    }
+
+    resolveGatePair(pairId, chosenGate = null) {
+        const pair = this.gatePairs.get(pairId);
+        if (!pair || pair.resolved) return;
+        pair.resolved = true;
+        this.resolvedGatePairs++;
+
+        if (chosenGate) this.applyGateEffect(chosenGate);
+        for (const gate of pair.gates) this.destroyGate(gate);
+        this.updateChallengeHUD();
+    }
+
+    hitGate(bullet, gate) {
+        if (this.challengeOver || !bullet.active || !gate.active || gate.__resolved) return;
+        bullet.destroy();
+
+        // Literal mobile-ad arithmetic: shooting a +1 makes it +2; shooting a -1
+        // makes it -2. Positive walls are worth feeding. Bad walls get worse.
+        gate.__value += gate.__positive ? 1 : -1;
+        gate.__value = Phaser.Math.Clamp(gate.__value, -15, 15);
+        this.refreshGateVisual(gate);
+
+        this.tweens.add({
+            targets: [gate, gate.__valueText],
+            alpha: 0.42,
+            duration: 45,
+            yoyo: true
+        });
+
+        const color = gate.__positive ? "#8dffae" : "#ff9ba2";
+        if (Math.abs(gate.__value) % 4 === 0) {
+            this.floatChallengeText(gate.x, gate.y - 58, this.formatGateValue(gate.__value), color);
+        }
+    }
+
+    crossGate(player, gate) {
+        if (this.challengeOver || !gate.active || gate.__resolved) return;
+        const pair = this.gatePairs.get(gate.__pairId);
+        if (!pair || pair.resolved) return;
+        gate.__resolved = true;
+        this.resolveGatePair(gate.__pairId, gate);
+    }
+
+    applyGateEffect(gate) {
+        const value = gate.__value;
+        const positive = value > 0;
+
+        if (gate.__effect === "VOLLEY") {
+            this.volley = Phaser.Math.Clamp(this.volley + value, 1, 12);
+        } else if (gate.__effect === "RATE") {
+            this.rateTier = Phaser.Math.Clamp(this.rateTier + value, -6, 18);
+        } else if (gate.__effect === "SPEED") {
+            this.speedTier = Phaser.Math.Clamp(this.speedTier + value, -6, 18);
+        }
+
+        try {
+            this.sound.play(positive ? "powerUp" : "powerDown", { volume: 0.18 });
+        } catch (_) {}
+
+        this.cameras.main.shake(positive ? 70 : 120, positive ? 0.0025 : 0.005);
+        this.floatChallengeText(
+            this.challengePlayer.x,
+            this.challengePlayer.y - 120,
+            `${gate.__effect} ${this.formatGateValue(value)}`,
+            positive ? "#8dffae" : "#ff9ba2"
+        );
+        this.updateChallengeHUD();
     }
 
     createChallengeHUD() {
         const top = this.add.graphics().setDepth(10000);
         top.fillStyle(0x0a0f19, 0.96);
-        top.fillRect(0, 0, GAME_WIDTH, 128);
+        top.fillRect(0, 0, GAME_WIDTH, 136);
         top.lineStyle(3, 0xffffff, 0.08);
-        top.lineBetween(0, 127, GAME_WIDTH, 127);
+        top.lineBetween(0, 135, GAME_WIDTH, 135);
 
-        this.add.text(28, 22, "THE CLAIMRUN", {
+        this.add.text(28, 17, "THE CLAIMRUN", {
             fontFamily: "Arial",
-            fontSize: "28px",
+            fontSize: "27px",
             fontStyle: "bold",
             color: "#fff0a2"
         }).setDepth(10001);
 
-        this.add.text(28, 62, this.lotId.toUpperCase(), {
+        this.add.text(28, 55, `${this.lotId.toUpperCase()}  //  RUN ${this.difficulty}`, {
             fontFamily: "Arial",
-            fontSize: "15px",
+            fontSize: "14px",
             fontStyle: "bold",
             color: "#8ca0b5"
         }).setDepth(10001);
 
-        this.enemyHud = this.add.text(690, 24, "", {
+        this.enemyHud = this.add.text(690, 18, "", {
             fontFamily: "Arial",
-            fontSize: "19px",
+            fontSize: "18px",
             fontStyle: "bold",
             color: "#ffffff",
             align: "right"
         }).setOrigin(1, 0).setDepth(10001);
 
-        this.fireHud = this.add.text(690, 55, "", {
+        this.fireHud = this.add.text(690, 48, "", {
             fontFamily: "Arial",
-            fontSize: "18px",
+            fontSize: "15px",
             fontStyle: "bold",
             color: "#72ff9d",
             align: "right"
         }).setOrigin(1, 0).setDepth(10001);
 
-        this.integrityHud = this.add.text(690, 85, "", {
+        this.integrityHud = this.add.text(690, 82, "", {
             fontFamily: "Arial",
-            fontSize: "16px",
+            fontSize: "15px",
             fontStyle: "bold",
             color: "#ffb2b8",
             align: "right"
         }).setOrigin(1, 0).setDepth(10001);
 
-        this.add.text(GAME_WIDTH / 2, 1238, "DRAG / MOVE LEFT & RIGHT  •  AUTO-FIRE  •  SHOOT GREEN, AVOID RED", {
+        this.wallHud = this.add.text(28, 87, "", {
             fontFamily: "Arial",
             fontSize: "13px",
             fontStyle: "bold",
             color: "#aebdcc"
-        }).setOrigin(0.5).setDepth(10001);
+        }).setDepth(10001);
+
+        this.add.text(GAME_WIDTH / 2, 1236,
+            "AUTO-FIRE • SHOOT WALLS TO CHANGE THEIR NUMBER • CROSS ONE TO APPLY IT",
+            {
+                fontFamily: "Arial",
+                fontSize: "12px",
+                fontStyle: "bold",
+                color: "#aebdcc"
+            }
+        ).setOrigin(0.5).setDepth(10001);
 
         this.updateChallengeHUD();
     }
@@ -997,13 +1517,21 @@ class ClaimRunScene extends Phaser.Scene {
         });
     }
 
+    currentShotInterval() {
+        return Phaser.Math.Clamp(400 * Math.pow(0.91, this.rateTier), 78, 650);
+    }
+
+    currentBulletSpeed() {
+        return Phaser.Math.Clamp(690 + this.speedTier * 55, 330, 1450);
+    }
+
     shoot(time) {
-        const interval = Math.max(105, 410 - this.fireLevel * 36);
+        const interval = this.currentShotInterval();
         if (time < this.nextShotAt) return;
         this.nextShotAt = time + interval;
 
-        const projectileCount = 1 + Math.floor((this.fireLevel - 1) / 2);
-        const spacing = 18;
+        const projectileCount = this.volley;
+        const spacing = projectileCount <= 1 ? 0 : Math.max(9, Math.min(18, 162 / (projectileCount - 1)));
 
         for (let i = 0; i < projectileCount; i++) {
             const offset = (i - (projectileCount - 1) / 2) * spacing;
@@ -1014,28 +1542,10 @@ class ClaimRunScene extends Phaser.Scene {
                 .setDepth(900);
 
             bullet.body.setAllowGravity(false);
-            bullet.setVelocityY(-690);
-            bullet.__gateHits = new Set();
+            bullet.setVelocityY(-this.currentBulletSpeed());
         }
 
-        try { this.sound.play("shot", { volume: 0.07, rate: 1.35 }); } catch (_) {}
-    }
-
-    spawnEnemy() {
-        if (this.challengeOver) return;
-        this.spawnedEnemies++;
-
-        const x = Phaser.Math.Between(100, GAME_WIDTH - 100);
-        const enemy = this.enemies.create(x, 160, "skeletonMove", 0)
-            .setScale(2.20)
-            .setDepth(700);
-
-        enemy.play("skeleton-move");
-        enemy.body.setAllowGravity(false);
-        enemy.body.setSize(22, 26).setOffset(5, 4);
-        enemy.setVelocityY(72 + Math.min(70, this.spawnedEnemies * 2.3) + Phaser.Math.Between(-8, 18));
-        enemy.__hp = this.spawnedEnemies > 14 ? 2 : 1;
-        enemy.__resolved = false;
+        try { this.sound.play("shot", { volume: 0.065, rate: 1.35 }); } catch (_) {}
     }
 
     hitEnemy(bullet, enemy) {
@@ -1047,48 +1557,17 @@ class ClaimRunScene extends Phaser.Scene {
 
         enemy.setTintFill(0xffffff);
         this.time.delayedCall(55, () => {
-            if (enemy.active) enemy.clearTint();
+            if (enemy.active) {
+                enemy.clearTint();
+                if (enemy.__elite) enemy.setTint(0xffd870);
+            }
         });
 
         if (enemy.__hp <= 0) {
             enemy.__resolved = true;
             this.defeatedEnemies++;
-            this.burst(enemy.x, enemy.y, 0xdde4ef);
+            this.burst(enemy.x, enemy.y, enemy.__elite ? 0xffd870 : 0xdde4ef);
             enemy.destroy();
-            this.updateChallengeHUD();
-        }
-    }
-
-    hitGate(bullet, gate) {
-        if (!bullet.active || !gate.active || this.challengeOver) return;
-        if (bullet.__gateHits.has(gate.__id)) return;
-        bullet.__gateHits.add(gate.__id);
-        gate.__charge++;
-        gate.__meter.setText(`${gate.__charge % gate.__threshold} / ${gate.__threshold}`);
-
-        this.tweens.add({
-            targets: gate,
-            alpha: 0.48,
-            duration: 50,
-            yoyo: true
-        });
-
-        if (gate.__charge % gate.__threshold === 0) {
-            if (gate.__type === "positive") {
-                const old = this.fireLevel;
-                this.fireLevel = Math.min(8, this.fireLevel + 1);
-                if (this.fireLevel !== old) {
-                    try { this.sound.play("powerUp", { volume: 0.15 }); } catch (_) {}
-                    this.floatChallengeText(gate.x, gate.y - 58, `FIRE ${this.fireLevel}`, "#8dffae");
-                }
-            } else {
-                const old = this.fireLevel;
-                this.fireLevel = Math.max(1, this.fireLevel - 1);
-                if (this.fireLevel !== old) {
-                    try { this.sound.play("powerDown", { volume: 0.15 }); } catch (_) {}
-                    this.floatChallengeText(gate.x, gate.y - 58, `FIRE ${this.fireLevel}`, "#ff9ba2");
-                }
-            }
             this.updateChallengeHUD();
         }
     }
@@ -1107,10 +1586,10 @@ class ClaimRunScene extends Phaser.Scene {
 
     updateChallengeHUD() {
         if (!this.enemyHud) return;
-        const resolved = this.defeatedEnemies + Math.max(0, 5 - this.integrity);
-        this.enemyHud.setText(`WAVE  ${Math.min(this.spawnedEnemies, this.totalEnemies)} / ${this.totalEnemies}`);
-        this.fireHud.setText(`FIRE LV.${this.fireLevel}`);
-        this.integrityHud.setText(`FENCE  ${"■".repeat(Math.max(0, this.integrity))}${"□".repeat(Math.max(0, 5 - this.integrity))}`);
+        this.enemyHud.setText(`HORDE  ${this.defeatedEnemies} / ${this.totalEnemies}`);
+        this.fireHud.setText(`×${this.volley}  RATE ${this.rateTier >= 0 ? "+" : ""}${this.rateTier}  SPD ${this.speedTier >= 0 ? "+" : ""}${this.speedTier}`);
+        this.integrityHud.setText(`FENCE  ${"■".repeat(Math.max(0, this.integrity))}${"□".repeat(Math.max(0, this.integrityMax - this.integrity))}`);
+        if (this.wallHud) this.wallHud.setText(`WALLS  ${this.resolvedGatePairs} / ${this.totalGatePairs}`);
     }
 
     burst(x, y, color) {
@@ -1155,9 +1634,10 @@ class ClaimRunScene extends Phaser.Scene {
         if (this.challengeOver) return;
         this.challengeOver = true;
         if (this.enemySpawnEvent) this.enemySpawnEvent.remove(false);
+        if (this.gateSpawnEvent) this.gateSpawnEvent.remove(false);
         this.physics.pause();
 
-        const veil = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x070b12, 0.78)
+        this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x070b12, 0.78)
             .setDepth(20000)
             .setInteractive();
 
@@ -1166,11 +1646,12 @@ class ClaimRunScene extends Phaser.Scene {
                 this.saveData.unlockedLots.push(this.lotId);
                 this.saveData.valor = (this.saveData.valor || 0) + 1;
             }
+            this.saveData.openedClaimruns = (this.saveData.openedClaimruns || []).filter(id => id !== this.lotId);
             persistSave(this.saveData);
             this.registry.set("saveData", this.saveData);
             try { this.sound.play("confirm", { volume: 0.32, rate: 1.05 }); } catch (_) {}
 
-            this.add.text(GAME_WIDTH / 2, 490, "CLAIM WON", {
+            this.add.text(GAME_WIDTH / 2, 470, "CLAIM WON", {
                 fontFamily: "Arial",
                 fontSize: "58px",
                 fontStyle: "bold",
@@ -1179,26 +1660,36 @@ class ClaimRunScene extends Phaser.Scene {
                 strokeThickness: 9
             }).setOrigin(0.5).setDepth(20001);
 
-            this.add.text(GAME_WIDTH / 2, 575, `${this.lotId} IS YOURS`, {
+            this.add.text(GAME_WIDTH / 2, 555, `${this.lotId} IS YOURS`, {
                 fontFamily: "Arial",
                 fontSize: "24px",
                 fontStyle: "bold",
                 color: "#d8ffc0"
             }).setOrigin(0.5).setDepth(20001);
 
-            this.add.text(GAME_WIDTH / 2, 638, "+1 VALOR", {
+            this.add.text(GAME_WIDTH / 2, 598, `RUN ${this.difficulty} CLEARED`, {
                 fontFamily: "Arial",
-                fontSize: "34px",
+                fontSize: "15px",
+                fontStyle: "bold",
+                color: "#9baaba"
+            }).setOrigin(0.5).setDepth(20001);
+
+            this.add.image(GAME_WIDTH / 2 - 42, 660, "uiValor")
+                .setScale(0.72)
+                .setDepth(20001);
+            this.add.text(GAME_WIDTH / 2 + 2, 660, "+1", {
+                fontFamily: "Arial",
+                fontSize: "36px",
                 fontStyle: "bold",
                 color: "#87e8ff"
-            }).setOrigin(0.5).setDepth(20001);
+            }).setOrigin(0, 0.5).setDepth(20001);
 
             this.time.delayedCall(1450, () => {
                 this.cameras.main.fadeOut(260, 255, 219, 88);
                 this.time.delayedCall(285, () => this.scene.start("GameScene"));
             });
         } else {
-            this.add.text(GAME_WIDTH / 2, 470, "CLAIM FAILED", {
+            this.add.text(GAME_WIDTH / 2, 450, "CLAIM FAILED", {
                 fontFamily: "Arial",
                 fontSize: "52px",
                 fontStyle: "bold",
@@ -1207,9 +1698,9 @@ class ClaimRunScene extends Phaser.Scene {
                 strokeThickness: 9
             }).setOrigin(0.5).setDepth(20001);
 
-            this.add.text(GAME_WIDTH / 2, 548, "The deed remains locked.", {
+            this.add.text(GAME_WIDTH / 2, 530, `Run ${this.difficulty} ate Pip. Entry is still paid.`, {
                 fontFamily: "Arial",
-                fontSize: "21px",
+                fontSize: "20px",
                 color: "#d7dde6"
             }).setOrigin(0.5).setDepth(20001);
 
@@ -1251,7 +1742,7 @@ class ClaimRunScene extends Phaser.Scene {
         this.challengePlayer.body.updateFromGameObject();
         this.shoot(time);
 
-        for (const bullet of this.bullets.getChildren()) {
+        for (const bullet of [...this.bullets.getChildren()]) {
             if (bullet.active && bullet.y < 120) bullet.destroy();
         }
 
@@ -1259,8 +1750,15 @@ class ClaimRunScene extends Phaser.Scene {
             if (enemy.active && enemy.y > 1000) this.breachEnemy(enemy);
         }
 
-        const waveFinished = this.spawnedEnemies >= this.totalEnemies && this.enemies.countActive(true) === 0;
-        if (waveFinished && this.integrity > 0) this.finishChallenge(true);
+        for (const gate of [...this.gates.getChildren()]) {
+            if (!gate.active) continue;
+            this.syncGateVisual(gate);
+            if (gate.y > 1170) this.resolveGatePair(gate.__pairId, null);
+        }
+
+        const hordeFinished = this.spawnedEnemies >= this.totalEnemies && this.enemies.countActive(true) === 0;
+        const wallsFinished = this.spawnedGatePairs >= this.totalGatePairs && this.resolvedGatePairs >= this.totalGatePairs;
+        if (hordeFinished && wallsFinished && this.integrity > 0) this.finishChallenge(true);
     }
 }
 
