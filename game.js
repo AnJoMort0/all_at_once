@@ -1,6 +1,6 @@
 /*
 ===============================================================================
-NULLMEADOW — PROJECT CONTRACT + CANON — v0.6 "POLISH PASS"
+NULLMEADOW — PROJECT CONTRACT + CANON — v0.7 "RIFTFALL"
 ===============================================================================
 
 DEVELOPMENT RULES
@@ -44,7 +44,16 @@ CURRENT WORLD CANON
   the number of visible workers. A worker walks in, performs one hammer interaction,
   immediately walks back to its post, and only then becomes available again.
 - Nullmeadow navigation indicators appear at the screen edge for important off-screen
-  targets: the Crankhouse, the Calling Lot and the nearest claimed build-ready Ghostlot.
+  targets: the Crankhouse, the Calling Lot, the nearest claimed build-ready Ghostlot,
+  and any currently manifested Nightglass Reliquary.
+- Nightglass Reliquary: an intermittent black-tower anomaly that opens RIFTFALL, a
+  separate survival game. Pip fights an all-direction invasion until dawn or death.
+- Riftglass: purple kill currency physically dropped by enemies during Riftfall. It is
+  spent to construct buildings on claimed Ghostlots.
+- Dawnseals: rare gold victory currency earned by surviving a full Riftfall. It powers
+  permanent research in the Brassroot Institute.
+- Claimed Ghostlots are build sites. Building identities and effects are persistent;
+  some blueprints are unique while recruiter buildings may be repeated.
 - Gold-ring Meadow Caches are one-time, persistent Glimmer finds scattered through
   the generated meadow.
 - The first Claimruns are short and forgiving. Later runs add drifting Rift Walkers,
@@ -181,7 +190,122 @@ function defaultSave() {
         unlockedLots: [],
         openedClaimruns: [],
         openedCaches: [],
-        runWards: 0
+        runWards: 0,
+        riftglass: 0,
+        dawnseals: 0,
+        invasionRuns: 0,
+        invasionWins: 0,
+        invasionKills: 0,
+        buildings: {},
+        tech: {},
+        claimedAchievements: [],
+        bounty: null
+    };
+
+}
+
+
+function ensureMetaState(save) {
+
+    if (!save || typeof save !== "object") {
+        save = defaultSave();
+    }
+
+    if (!Array.isArray(save.unlockedLots)) save.unlockedLots = [];
+    if (!Array.isArray(save.openedClaimruns)) save.openedClaimruns = [];
+    if (!Array.isArray(save.openedCaches)) save.openedCaches = [];
+    if (!Array.isArray(save.claimedAchievements)) save.claimedAchievements = [];
+
+    if (!save.buildings || typeof save.buildings !== "object" || Array.isArray(save.buildings)) {
+        save.buildings = {};
+    }
+
+    if (!save.tech || typeof save.tech !== "object" || Array.isArray(save.tech)) {
+        save.tech = {};
+    }
+
+    save.riftglass = Math.max(0, Math.floor(Number(save.riftglass) || 0));
+    save.dawnseals = Math.max(0, Math.floor(Number(save.dawnseals) || 0));
+    save.invasionRuns = Math.max(0, Math.floor(Number(save.invasionRuns) || 0));
+    save.invasionWins = Math.max(0, Math.floor(Number(save.invasionWins) || 0));
+    save.invasionKills = Math.max(0, Math.floor(Number(save.invasionKills) || 0));
+
+    for (const [key, max] of [
+        ["riftTempo", 5],
+        ["longstep", 5],
+        ["ironPulse", 3],
+        ["gravemagnet", 4]
+    ]) {
+        save.tech[key] = Phaser.Math.Clamp(
+            Math.floor(Number(save.tech[key]) || 0),
+            0,
+            max
+        );
+    }
+
+    return save;
+
+}
+
+
+function buildingCountInSave(save, key) {
+    const buildings = save?.buildings || {};
+    return Object.values(buildings).filter(value => value === key).length;
+}
+
+
+function hasBuildingInSave(save, key) {
+    return buildingCountInSave(save, key) > 0;
+}
+
+
+const BOUNTY_DEFS = [
+    {
+        id: "bone-tithe",
+        title: "BONE TITHE",
+        description: "Drop 30 invaders in Riftfall.",
+        type: "kill",
+        target: 30,
+        reward: { riftglass: 28 }
+    },
+    {
+        id: "hold-the-dark",
+        title: "HOLD THE DARK",
+        description: "Stay alive for 60 seconds in Riftfall.",
+        type: "survive",
+        target: 60,
+        reward: { riftglass: 34 }
+    },
+    {
+        id: "bring-back-dawn",
+        title: "BRING BACK DAWN",
+        description: "Survive one complete Riftfall.",
+        type: "win",
+        target: 1,
+        reward: { dawnseals: 1 }
+    }
+];
+
+
+function ensureRotatingBounty(save) {
+
+    ensureMetaState(save);
+
+    const cycle = Math.floor(Date.now() / 86400000);
+    const definition = BOUNTY_DEFS[Math.abs(cycle) % BOUNTY_DEFS.length];
+
+    if (!save.bounty || save.bounty.cycle !== cycle || save.bounty.id !== definition.id) {
+        save.bounty = {
+            cycle,
+            id: definition.id,
+            progress: 0,
+            claimed: false
+        };
+    }
+
+    return {
+        state: save.bounty,
+        definition
     };
 
 }
@@ -198,10 +322,10 @@ function loadSave() {
                 )
             );
 
-        const save = {
+        const save = ensureMetaState({
             ...defaultSave(),
             ...(parsed || {})
-        };
+        });
 
         if (
             !Array.isArray(
@@ -380,6 +504,26 @@ const AudioDirector = {
         this.currentAmbientKey = ambientKey;
 
         this.syncSceneAudio();
+
+    },
+
+    releaseScene(scene) {
+
+        if (this.currentScene !== scene) {
+            return;
+        }
+
+        for (const sound of [this.musicSound, this.ambientSound]) {
+            if (!sound) continue;
+            try { sound.stop(); } catch (_) {}
+            try { sound.destroy(); } catch (_) {}
+        }
+
+        this.musicSound = null;
+        this.ambientSound = null;
+        this.currentScene = null;
+        this.currentMusicKey = null;
+        this.currentAmbientKey = null;
 
     },
 
@@ -684,6 +828,40 @@ const ASSETS = {
     claimArrow:
         "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Archer/Arrow.png",
 
+    // Riftfall Pip + recruit loadouts.
+    invasionWarriorIdle:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Warrior/Warrior_Idle.png",
+
+    invasionWarriorRun:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Warrior/Warrior_Run.png",
+
+    invasionWarriorAttack:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Warrior/Warrior_Attack1.png",
+
+    invasionArcherIdle:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Archer/Archer_Idle.png",
+
+    invasionArcherShoot:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Archer/Archer_Shoot.png",
+
+    invasionLancerIdle:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Lancer/Lancer_Idle.png",
+
+    invasionLancerAttack:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Lancer/Lancer_Right_Attack.png",
+
+    invasionMonkIdle:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Monk/Idle.png",
+
+    invasionMonkHeal:
+        "assets/images/spritesheets/characters/tiny_swords/Yellow Units/Monk/Heal.png",
+
+    invasionSkeleton2:
+        "assets/images/spritesheets/enemies/enemy_animations/enemies-skeleton2_movemen.png",
+
+    invasionVampire:
+        "assets/images/spritesheets/enemies/enemy_animations/enemies-vampire_movement.png",
+
 
     /*
         Tiny Swords UI art.
@@ -710,13 +888,51 @@ const ASSETS = {
     uiInfo:
         "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_11.png",
 
-    // Raven fantasy key used as the Ghostlot locked-state symbol.
+    // Actual Raven gold key used as the Ghostlot locked-state symbol.
     uiLotLocked:
-        "assets/images/icons/raven_fantasy_icons/64x64/fc70.png",
+        "assets/images/icons/raven_fantasy_icons/64x64/fc179.png",
 
     // Imported pixel arrow for off-screen navigation pointers.
     navArrow:
         "assets/images/ui/controls/2d_pixel_dungeon/arrow_2.png",
+
+    // Riftfall point-of-interest + persistent currencies.
+    riftReliquary:
+        "assets/images/environment/buildings/tiny_swords/Black Buildings/Tower.png",
+
+    riftGlassIcon:
+        "assets/images/icons/raven_fantasy_icons/64x64/fc166.png",
+
+    dawnSealIcon:
+        "assets/images/icons/raven_fantasy_icons/64x64/fc171.png",
+
+    // Claimed-lot construction set.
+    buildingLaurel:
+        "assets/images/environment/buildings/tiny_swords/Blue Buildings/Monastery.png",
+
+    buildingBounty:
+        "assets/images/environment/buildings/tiny_swords/Yellow Buildings/Tower.png",
+
+    buildingTech:
+        "assets/images/environment/buildings/tiny_swords/Purple Buildings/Monastery.png",
+
+    buildingCafe:
+        "assets/images/environment/buildings/tiny_swords/Blue Buildings/House3.png",
+
+    buildingPipyard:
+        "assets/images/environment/buildings/tiny_swords/Yellow Buildings/Barracks.png",
+
+    buildingWarroom:
+        "assets/images/environment/buildings/tiny_swords/Blue Buildings/Barracks.png",
+
+    buildingBowyer:
+        "assets/images/environment/buildings/tiny_swords/Yellow Buildings/Archery.png",
+
+    buildingPikehouse:
+        "assets/images/environment/buildings/tiny_swords/Red Buildings/Barracks.png",
+
+    buildingCloister:
+        "assets/images/environment/buildings/tiny_swords/Yellow Buildings/Monastery.png",
 
 
     uiRoundBlue:
@@ -771,6 +987,9 @@ const ASSETS = {
     claimrunTheme:
         "assets/audio/music/loop_music32.ogg",
 
+    invasionTheme:
+        "assets/audio/music/loop_music16.ogg",
+
     meadowWind:
         "assets/audio/sfx/environment/ambient_wind.wav",
 
@@ -780,12 +999,162 @@ const ASSETS = {
 };
 
 
+const BUILDING_DEFS = {
+
+    laurelArchive: {
+        name: "Laurel Archive",
+        short: "ARCHIVE",
+        texture: "buildingLaurel",
+        scale: 0.54,
+        unique: true,
+        cost: 38,
+        description: "Unlocks settlement achievements and their oversized rewards."
+    },
+
+    bountyBell: {
+        name: "Bounty Bell",
+        short: "BOUNTIES",
+        texture: "buildingBounty",
+        scale: 0.62,
+        unique: true,
+        cost: 44,
+        description: "Posts one rotating Riftfall contract with a small reward."
+    },
+
+    brassrootInstitute: {
+        name: "Brassroot Institute",
+        short: "TECH",
+        texture: "buildingTech",
+        scale: 0.54,
+        unique: true,
+        cost: 72,
+        description: "Turns Dawnseals into permanent Pip research."
+    },
+
+    clockCafe: {
+        name: "Clock Café",
+        short: "CAFÉ",
+        texture: "buildingCafe",
+        scale: 0.72,
+        unique: true,
+        cost: 54,
+        description: "Coffee, gears, and shorter helper travel / auto-crank cycles."
+    },
+
+    pipyard: {
+        name: "Pipyard",
+        short: "TRAINING",
+        texture: "buildingPipyard",
+        scale: 0.58,
+        unique: true,
+        cost: 62,
+        description: "Pip moves faster in Nullmeadow and enters Riftfall tougher."
+    },
+
+    warroom: {
+        name: "Blue Warroom",
+        short: "WARROOM",
+        texture: "buildingWarroom",
+        scale: 0.58,
+        unique: true,
+        cost: 86,
+        description: "All recruited soldiers deal substantially more Riftfall damage."
+    },
+
+    bowyerLodge: {
+        name: "Bowyer Lodge",
+        short: "ARCHER",
+        texture: "buildingBowyer",
+        scale: 0.58,
+        unique: false,
+        cost: 24,
+        repeatCost: 14,
+        description: "Adds one autonomous archer to every Riftfall squad."
+    },
+
+    pikehouse: {
+        name: "Pikehouse",
+        short: "LANCER",
+        texture: "buildingPikehouse",
+        scale: 0.58,
+        unique: false,
+        cost: 30,
+        repeatCost: 18,
+        description: "Adds one close-range lancer to every Riftfall squad."
+    },
+
+    lanternCloister: {
+        name: "Lantern Cloister",
+        short: "MONK",
+        texture: "buildingCloister",
+        scale: 0.54,
+        unique: false,
+        cost: 40,
+        repeatCost: 22,
+        description: "Adds one monk; monks periodically restore Pip during Riftfall."
+    }
+
+};
+
+
+const ACHIEVEMENT_DEFS = [
+    {
+        id: "first-blood",
+        title: "FIRST BLOOD",
+        description: "Defeat your first Riftfall invader.",
+        test: save => save.invasionKills >= 1,
+        reward: { riftglass: 45 }
+    },
+    {
+        id: "claimkeeper",
+        title: "CLAIMKEEPER",
+        description: "Claim three Ghostlots.",
+        test: save => save.unlockedLots.length >= 3,
+        reward: { dawnseals: 1 }
+    },
+    {
+        id: "bring-the-dawn",
+        title: "BRING THE DAWN",
+        description: "Win a Riftfall invasion.",
+        test: save => save.invasionWins >= 1,
+        reward: { riftglass: 80 }
+    },
+    {
+        id: "little-city",
+        title: "LITTLE CITY",
+        description: "Construct three buildings.",
+        test: save => Object.keys(save.buildings || {}).length >= 3,
+        reward: { dawnseals: 2 }
+    },
+    {
+        id: "night-eater",
+        title: "NIGHT EATER",
+        description: "Defeat 250 Riftfall invaders total.",
+        test: save => save.invasionKills >= 250,
+        reward: { riftglass: 180, dawnseals: 2 }
+    }
+];
+
+
 
 class GameScene extends Phaser.Scene {
 
     constructor() {
 
         super("GameScene");
+
+    }
+
+
+    init(data) {
+
+        this.returnFromInvasion = Boolean(data?.returnFromInvasion);
+        this.returnSpawn =
+            this.returnFromInvasion &&
+            Number.isFinite(data?.x) &&
+            Number.isFinite(data?.y)
+                ? { x: data.x, y: data.y }
+                : null;
 
     }
 
@@ -858,6 +1227,11 @@ class GameScene extends Phaser.Scene {
         );
 
         this.load.image(
+            "uiTown",
+            ASSETS.uiTown
+        );
+
+        this.load.image(
             "uiSettings",
             ASSETS.uiSettings
         );
@@ -906,6 +1280,23 @@ class GameScene extends Phaser.Scene {
             "uiTinySquareBlue",
             ASSETS.uiTinySquareBlue
         );
+
+        for (const [key, source] of [
+            ["riftReliquary", ASSETS.riftReliquary],
+            ["riftGlassIcon", ASSETS.riftGlassIcon],
+            ["dawnSealIcon", ASSETS.dawnSealIcon],
+            ["buildingLaurel", ASSETS.buildingLaurel],
+            ["buildingBounty", ASSETS.buildingBounty],
+            ["buildingTech", ASSETS.buildingTech],
+            ["buildingCafe", ASSETS.buildingCafe],
+            ["buildingPipyard", ASSETS.buildingPipyard],
+            ["buildingWarroom", ASSETS.buildingWarroom],
+            ["buildingBowyer", ASSETS.buildingBowyer],
+            ["buildingPikehouse", ASSETS.buildingPikehouse],
+            ["buildingCloister", ASSETS.buildingCloister]
+        ]) {
+            this.load.image(key, source);
+        }
 
 
         this.load.spritesheet(
@@ -1222,6 +1613,10 @@ class GameScene extends Phaser.Scene {
             this.registry.get("saveData") ||
             loadSave();
 
+        ensureMetaState(
+            this.saveData
+        );
+
 
         if (
             !Array.isArray(
@@ -1356,6 +1751,8 @@ class GameScene extends Phaser.Scene {
 
         this.createGhostlots();
 
+        this.createRiftReliquary();
+
         this.createScenery();
 
         this.createWorldAtmosphere();
@@ -1363,6 +1760,19 @@ class GameScene extends Phaser.Scene {
         this.createCrankhouse();
 
         this.createPip();
+
+        if (this.returnSpawn) {
+            this.player.setPosition(
+                Phaser.Math.Clamp(this.returnSpawn.x, 70, WORLD_SIZE - 70),
+                Phaser.Math.Clamp(this.returnSpawn.y, 70, WORLD_SIZE - 70)
+            );
+            this.player.body.updateFromGameObject();
+            this.playerName.setPosition(
+                this.player.x,
+                this.player.y - 94
+            );
+        }
+
         this.spawnFieldCache(true);
 
         this.createAnimations();
@@ -1775,7 +2185,10 @@ class GameScene extends Phaser.Scene {
             this.ghostlots.push({
                 id,
                 ...candidate,
-                unlocked
+                unlocked,
+                buildingKey:
+                    this.saveData.buildings?.[id] ||
+                    null
             });
 
         }
@@ -1917,49 +2330,96 @@ class GameScene extends Phaser.Scene {
 
         if (unlocked) {
 
-            /*
-                Asset-only state badge.
-                No procedural checkmark / circle pictogram.
-            */
+            const buildingKey =
+                this.saveData.buildings?.[id] ||
+                null;
 
-            const claimedBack =
+            if (buildingKey && BUILDING_DEFS[buildingKey]) {
+
+                const definition =
+                    BUILDING_DEFS[buildingKey];
+
+                const building =
+                    this.add.image(
+                        x,
+                        y + 6,
+                        definition.texture
+                    )
+                    .setScale(definition.scale)
+                    .setDepth(y + 4)
+                    .setInteractive({
+                        useHandCursor: true
+                    });
+
+                building.__lotId = id;
+                building.__buildingKey = buildingKey;
+                building.__blocksWorldInput = true;
+                lot.buildingSprite = building;
+
                 this.add.image(
                     x,
-                    y,
-                    "uiTinyRoundBlue"
+                    y - half + 22,
+                    "riftGlassIcon"
                 )
-                .setScale(0.96)
-                .setDepth(-95)
-                .setAlpha(0.98);
+                .setScale(0.34)
+                .setDepth(y + 6)
+                .setAlpha(0.78);
 
-            const claimedIcon =
-                this.add.image(
-                    x,
-                    y - 1,
-                    "uiBuild"
-                )
-                .setScale(0.44)
-                .setDepth(-94)
-                .setTint(0xeaffd7);
+            } else {
 
-            this.tweens.add({
-                targets: claimedBack,
-                scaleX: 1.02,
-                scaleY: 1.02,
-                duration: 1200,
-                yoyo: true,
-                repeat: -1,
-                ease: "Sine.InOut"
-            });
+                /*
+                    Empty claimed lot = build-ready.
+                    The construction state is entirely asset-backed.
+                */
+                const claimedBack =
+                    this.add.image(
+                        x,
+                        y,
+                        "uiTinyRoundBlue"
+                    )
+                    .setScale(0.96)
+                    .setDepth(-95)
+                    .setAlpha(0.98)
+                    .setInteractive({
+                        useHandCursor: true
+                    });
 
-            this.tweens.add({
-                targets: claimedIcon,
-                y: y - 4,
-                duration: 980,
-                yoyo: true,
-                repeat: -1,
-                ease: "Sine.InOut"
-            });
+                claimedBack.__lotId = id;
+                claimedBack.__buildReady = true;
+                claimedBack.__blocksWorldInput = true;
+
+                const claimedIcon =
+                    this.add.image(
+                        x,
+                        y - 1,
+                        "uiBuild"
+                    )
+                    .setScale(0.44)
+                    .setDepth(-94)
+                    .setTint(0xeaffd7);
+
+                this.tweens.add({
+                    targets: claimedBack,
+                    scaleX: 1.02,
+                    scaleY: 1.02,
+                    duration: 1200,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: "Sine.InOut"
+                });
+
+                this.tweens.add({
+                    targets: claimedIcon,
+                    y: y - 4,
+                    duration: 980,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: "Sine.InOut"
+                });
+
+                lot.buildBadge = claimedBack;
+
+            }
 
         } else {
 
@@ -2022,12 +2482,21 @@ class GameScene extends Phaser.Scene {
         }
 
 
-        const suffix =
+        const builtDefinition =
             unlocked
-                ? " • CLAIMED"
-                : active
-                    ? " • CALLING"
-                    : "";
+                ? BUILDING_DEFS[
+                    this.saveData.buildings?.[id]
+                  ]
+                : null;
+
+        const suffix =
+            builtDefinition
+                ? ` • ${builtDefinition.short}`
+                : unlocked
+                    ? " • BUILD READY"
+                    : active
+                        ? " • CALLING"
+                        : "";
 
 
         this.add.text(
@@ -2066,7 +2535,11 @@ class GameScene extends Phaser.Scene {
             0.5,
             0
         )
-        .setDepth(-90)
+        .setDepth(
+            builtDefinition
+                ? y + 90
+                : -90
+        )
         .setAlpha(
             unlocked ||
             active
@@ -2175,6 +2648,293 @@ class GameScene extends Phaser.Scene {
     }
 
 
+    shouldSpawnRiftReliquary() {
+
+        /*
+            The first Riftfall is guaranteed so the new system can be discovered.
+            After that the anomaly is intermittent but deterministic for the current
+            settlement state, so simply reopening a menu cannot reroll it.
+        */
+        if (
+            (this.saveData.invasionWins || 0) === 0 ||
+            (this.saveData.unlockedLots?.length || 0) >= 8
+        ) {
+            return true;
+        }
+
+        const roll =
+            (
+                (this.saveData.invasionWins || 0) * 47 +
+                (this.saveData.unlockedLots?.length || 0) * 19
+            ) % 100;
+
+        return roll < 68;
+
+    }
+
+
+    createRiftReliquary() {
+
+        this.riftReliquary = null;
+        this.riftReliquaryPrompt = null;
+        this.riftReliquaryButton = null;
+
+        if (!this.shouldSpawnRiftReliquary()) {
+            return;
+        }
+
+        const rng = this.makeRng(
+            0x52494654 ^
+            ((this.saveData.invasionWins || 0) + 1) * 7919 ^
+            ((this.saveData.unlockedLots?.length || 0) + 3) * 3571
+        );
+
+        let point = null;
+
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const angle = rng() * Math.PI * 2;
+            const radius = 610 + rng() * 210;
+            const x = Phaser.Math.Clamp(
+                this.worldCenter.x + Math.cos(angle) * radius,
+                150,
+                WORLD_SIZE - 150
+            );
+            const y = Phaser.Math.Clamp(
+                this.worldCenter.y + Math.sin(angle) * radius,
+                180,
+                WORLD_SIZE - 170
+            );
+
+            const collidesLot =
+                this.ghostlots?.some(lot =>
+                    Phaser.Math.Distance.Between(
+                        x,
+                        y,
+                        lot.x,
+                        lot.y
+                    ) < lot.size * 0.75 + 105
+                );
+
+            if (!collidesLot) {
+                point = { x, y };
+                break;
+            }
+        }
+
+        point ||= {
+            x: this.worldCenter.x + 700,
+            y: this.worldCenter.y - 470
+        };
+
+        const tower =
+            this.add.image(
+                point.x,
+                point.y,
+                "riftReliquary"
+            )
+            .setScale(0.82)
+            .setDepth(point.y + 6)
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        tower.__blocksWorldInput = true;
+        tower.__riftReliquary = true;
+
+        const sigil =
+            this.add.image(
+                point.x,
+                point.y - 116,
+                "riftGlassIcon"
+            )
+            .setScale(0.72)
+            .setDepth(point.y + 18);
+
+        this.tweens.add({
+            targets: sigil,
+            y: point.y - 128,
+            scaleX: 0.80,
+            scaleY: 0.80,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.InOut"
+        });
+
+        const label =
+            this.add.text(
+                point.x,
+                point.y + 148,
+                "NIGHTGLASS RELIQUARY",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "18px",
+                    color: "#d9c5ff",
+                    stroke: "#161220",
+                    strokeThickness: 5
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(point.y + 20);
+
+        const prompt =
+            this.add.container(
+                point.x,
+                point.y - 188
+            )
+            .setDepth(50020)
+            .setVisible(false);
+
+        const bubble = this.add.graphics();
+        bubble.fillStyle(THEME.ink, 0.97);
+        bubble.fillRoundedRect(-154, -50, 308, 100, 22);
+        bubble.lineStyle(3, 0xb884ff, 0.80);
+        bubble.strokeRoundedRect(-154, -50, 308, 100, 22);
+        bubble.fillStyle(THEME.ink, 0.97);
+        bubble.fillTriangle(-12, 50, 12, 50, 0, 67);
+
+        const title =
+            this.add.text(
+                -134,
+                -35,
+                "RIFTFALL",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "20px",
+                    color: "#eadcff"
+                }
+            );
+
+        const sub =
+            this.add.text(
+                -134,
+                -5,
+                "SURVIVE THE NIGHT • KEEP WHAT YOU COLLECT",
+                {
+                    fontFamily: FONT_TECH,
+                    fontSize: "10px",
+                    fontStyle: "bold",
+                    color: "#aab3c7"
+                }
+            );
+
+        const play =
+            this.add.image(
+                111,
+                1,
+                "uiRoundRed"
+            )
+            .setScale(0.66)
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        play.__blocksWorldInput = true;
+
+        const playIcon =
+            this.add.image(
+                111,
+                1,
+                "riftGlassIcon"
+            )
+            .setScale(0.46);
+
+        prompt.add([
+            bubble,
+            title,
+            sub,
+            play,
+            playIcon
+        ]);
+
+        play.on("pointerdown", (pointer, localX, localY, event) => {
+            event?.stopPropagation?.();
+            this.beginRiftfall();
+        });
+
+        tower.on("pointerdown", (pointer, localX, localY, event) => {
+            event?.stopPropagation?.();
+
+            const distance =
+                Phaser.Math.Distance.Between(
+                    this.player?.x ?? this.worldCenter.x,
+                    this.player?.y ?? this.worldCenter.y,
+                    point.x,
+                    point.y
+                );
+
+            if (distance > 250) {
+                this.walkTo(point.x, point.y + 105);
+                this.showHudToast("The Reliquary is calling. Get closer.");
+                return;
+            }
+
+            prompt.setVisible(true);
+        });
+
+        this.riftReliquary = tower;
+        this.riftReliquaryPoint = point;
+        this.riftReliquaryPrompt = prompt;
+        this.riftReliquaryLabel = label;
+
+    }
+
+
+    updateRiftReliquaryPrompt() {
+
+        if (!this.riftReliquary || !this.riftReliquaryPrompt || !this.player) {
+            return;
+        }
+
+        const near =
+            Phaser.Math.Distance.Between(
+                this.player.x,
+                this.player.y,
+                this.riftReliquary.x,
+                this.riftReliquary.y
+            ) < 255;
+
+        this.riftReliquaryPrompt.setVisible(near);
+
+    }
+
+
+    beginRiftfall() {
+
+        if (!this.riftReliquary || this.claimrunLaunching) {
+            return;
+        }
+
+        this.claimrunLaunching = true;
+        this.moveTarget = null;
+        AudioDirector.playEffect("click");
+
+        this.cameras.main.fadeOut(
+            240,
+            18,
+            10,
+            30
+        );
+
+        this.time.delayedCall(
+            255,
+            () => {
+                this.physics.resume();
+                this.scene.start(
+                    "InvasionScene",
+                    {
+                        x: this.player.x,
+                        y: this.player.y,
+                        riftX: this.riftReliquary.x,
+                        riftY: this.riftReliquary.y
+                    }
+                );
+            }
+        );
+
+    }
+
+
     createScenery() {
 
         const rng =
@@ -2255,6 +3015,18 @@ class GameScene extends Phaser.Scene {
 
 
             if (blockedByLot) {
+                continue;
+            }
+
+            if (
+                this.riftReliquaryPoint &&
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.riftReliquaryPoint.x,
+                    this.riftReliquaryPoint.y
+                ) < 190
+            ) {
                 continue;
             }
 
@@ -2461,6 +3233,15 @@ class GameScene extends Phaser.Scene {
 
             if (
                 blocked ||
+                (
+                    this.riftReliquaryPoint &&
+                    Phaser.Math.Distance.Between(
+                        centerX,
+                        centerY,
+                        this.riftReliquaryPoint.x,
+                        this.riftReliquaryPoint.y
+                    ) < 235
+                ) ||
                 Phaser.Math.Distance.Between(
                     centerX,
                     centerY,
@@ -2495,7 +3276,18 @@ class GameScene extends Phaser.Scene {
                     ) < lot.size * 0.72
                 );
 
-                if (nearLot) {
+                if (
+                    nearLot ||
+                    (
+                        this.riftReliquaryPoint &&
+                        Phaser.Math.Distance.Between(
+                            treeX,
+                            treeY,
+                            this.riftReliquaryPoint.x,
+                            this.riftReliquaryPoint.y
+                        ) < 165
+                    )
+                ) {
                     continue;
                 }
 
@@ -3381,6 +4173,21 @@ class GameScene extends Phaser.Scene {
             }
         });
 
+        makeIndicator({
+            key: "rift",
+            label: "RIFT",
+            iconTexture: "riftGlassIcon",
+            iconScale: 0.46,
+            targetProvider: () =>
+                this.riftReliquary
+                    ? {
+                        x: this.riftReliquary.x,
+                        y: this.riftReliquary.y,
+                        name: "Nightglass Reliquary"
+                    }
+                    : null
+        });
+
     }
 
 
@@ -3392,7 +4199,11 @@ class GameScene extends Phaser.Scene {
 
         const candidates =
             this.ghostlots
-                .filter(lot => lot.unlocked)
+                .filter(
+                    lot =>
+                        lot.unlocked &&
+                        !this.saveData.buildings?.[lot.id]
+                )
                 .sort(
                     (a, b) =>
                         Phaser.Math.Distance.Between(
@@ -3425,7 +4236,7 @@ class GameScene extends Phaser.Scene {
         const safe = {
             left: 54,
             right: GAME_WIDTH - 54,
-            top: 118,
+            top: 166,
             bottom: GAME_HEIGHT - 92
         };
 
@@ -4213,6 +5024,25 @@ class GameScene extends Phaser.Scene {
                     return;
                 }
 
+                const clickedLotObject =
+                    currentlyOver &&
+                    currentlyOver.find(
+                        object => object?.__lotId
+                    );
+
+                if (clickedLotObject) {
+                    const lot =
+                        this.findGhostlotById(
+                            clickedLotObject.__lotId
+                        );
+
+                    if (lot?.unlocked) {
+                        AudioDirector.playEffect("click");
+                        this.handleClaimedLotTap(lot);
+                        return;
+                    }
+                }
+
 
                 if (this.activeGhostlot) {
 
@@ -4281,7 +5111,7 @@ class GameScene extends Phaser.Scene {
 
 
                 if (
-                    pointer.y < 112 ||
+                    pointer.y < 160 ||
                     pointer.y >
                         GAME_HEIGHT - 78
                 ) {
@@ -4417,7 +5247,7 @@ class GameScene extends Phaser.Scene {
             18,
             12,
             684,
-            82,
+            138,
             20
         );
 
@@ -4433,7 +5263,7 @@ class GameScene extends Phaser.Scene {
             18,
             12,
             684,
-            82,
+            138,
             20
         );
 
@@ -4447,9 +5277,9 @@ class GameScene extends Phaser.Scene {
 
         top.lineBetween(
             30,
-            94,
+            150,
             690,
-            94
+            150
         );
 
 
@@ -4532,9 +5362,33 @@ class GameScene extends Phaser.Scene {
                 "uiValor",
                 0.44,
 
-                    "Valor",
+                "Valor",
 
-                    "Valor"
+                "Valor"
+            );
+
+        this.riftGlassHud =
+            this.createCurrencyChip(
+                430,
+                108,
+                "riftGlassIcon",
+                0.48,
+
+                "Riftglass",
+
+                "Dropped by Riftfall invaders. Builds on claimed Ghostlots."
+            );
+
+        this.dawnSealHud =
+            this.createCurrencyChip(
+                558,
+                108,
+                "dawnSealIcon",
+                0.48,
+
+                "Dawnseals",
+
+                "Earned by surviving Riftfall. Powers Brassroot research."
             );
 
             this.createHudIconButton(
@@ -4728,7 +5582,9 @@ class GameScene extends Phaser.Scene {
                 "uiTinySquareBlue"
             )
             .setScale(0.70)
-            ;
+            .setInteractive({
+                useHandCursor: true
+            });
 
 
         plate.__blocksWorldInput =
@@ -4781,6 +5637,12 @@ class GameScene extends Phaser.Scene {
 
         this.hudRoot.add(
             amount
+        );
+
+        this.attachTooltip(
+            plate,
+            title,
+            description
         );
 
 
@@ -5028,9 +5890,20 @@ class GameScene extends Phaser.Scene {
 
         this.hubActionZones = [];
 
-        const rowCount = Math.min(rows.length, 3);
-        const panelTop = rowCount <= 2 ? 360 : 325;
-        const panelHeight = rowCount <= 2 ? 560 : 630;
+        const rowCount = Math.min(rows.length, 5);
+        const panelTop =
+            rowCount <= 2
+                ? 360
+                : rowCount === 3
+                    ? 325
+                    : rowCount === 4
+                        ? 265
+                        : 215;
+
+        const panelHeight =
+            rowCount <= 2
+                ? 560
+                : 280 + rowCount * 116;
 
         const panel =
             this.add.graphics();
@@ -5083,6 +5956,7 @@ class GameScene extends Phaser.Scene {
         rows.slice(0, rowCount).forEach((row, index) => {
 
             const y = panelTop + 182 + index * 116;
+            const contentX = row.previewTexture ? 176 : 92;
             const card =
                 this.add.graphics();
 
@@ -5104,7 +5978,7 @@ class GameScene extends Phaser.Scene {
 
             const titleText =
                 this.add.text(
-                    92,
+                    contentX,
                     y - 30,
                     row.title,
                     {
@@ -5118,7 +5992,7 @@ class GameScene extends Phaser.Scene {
 
             const descriptionText =
                 this.add.text(
-                    92,
+                    contentX,
                     y - 3,
                     row.description,
                     {
@@ -5126,7 +6000,11 @@ class GameScene extends Phaser.Scene {
                         fontSize: "15px",
                         fontStyle: "bold",
                         color: "#aebdca",
-                        wordWrap: { width: 370 },
+                        wordWrap: {
+                            width: row.previewTexture
+                                ? 285
+                                : 370
+                        },
                         lineSpacing: 1
                     }
                 );
@@ -5152,6 +6030,21 @@ class GameScene extends Phaser.Scene {
                 descriptionText,
                 actionText
             ];
+
+            if (row.previewTexture) {
+                const preview =
+                    this.add.image(
+                        122,
+                        y + 4,
+                        row.previewTexture
+                    )
+                    .setScale(
+                        row.previewScale ||
+                        0.22
+                    );
+
+                rowChildren.push(preview);
+            }
 
             if (
                 row.currencyIcon &&
@@ -5253,6 +6146,619 @@ class GameScene extends Phaser.Scene {
     }
 
 
+    buildingCost(key) {
+
+        const definition = BUILDING_DEFS[key];
+
+        if (!definition) {
+            return Infinity;
+        }
+
+        const copies =
+            buildingCountInSave(
+                this.saveData,
+                key
+            );
+
+        return (
+            definition.cost +
+            (definition.repeatCost || 0) * copies
+        );
+
+    }
+
+
+    formatMetaReward(reward) {
+
+        const parts = [];
+
+        if (reward?.riftglass) {
+            parts.push(`${reward.riftglass} Riftglass`);
+        }
+
+        if (reward?.dawnseals) {
+            parts.push(`${reward.dawnseals} Dawnseal${reward.dawnseals === 1 ? "" : "s"}`);
+        }
+
+        if (reward?.glimmer) {
+            parts.push(`${reward.glimmer} Glimmer`);
+        }
+
+        return parts.join(" + ") || "Mystery reward";
+
+    }
+
+
+    findGhostlotById(id) {
+
+        return this.ghostlots?.find(
+            lot => lot.id === id
+        ) || null;
+
+    }
+
+
+    handleClaimedLotTap(lot) {
+
+        if (!lot?.unlocked) {
+            return;
+        }
+
+        const distance =
+            Phaser.Math.Distance.Between(
+                this.player.x,
+                this.player.y,
+                lot.x,
+                lot.y
+            );
+
+        if (distance > Math.max(230, lot.size * 0.9)) {
+            this.walkTo(lot.x, lot.y + lot.size * 0.45);
+            this.showHudToast(
+                this.saveData.buildings?.[lot.id]
+                    ? "Walk closer to inspect that building."
+                    : "Walk closer to the build site."
+            );
+            return;
+        }
+
+        const buildingKey =
+            this.saveData.buildings?.[lot.id] ||
+            null;
+
+        if (buildingKey) {
+            this.openBuildingPanel(lot, buildingKey);
+        } else {
+            this.openBuildMenu(lot, 0);
+        }
+
+    }
+
+
+    openBuildMenu(lot, page = 0) {
+
+        if (!lot?.unlocked || this.saveData.buildings?.[lot.id]) {
+            return;
+        }
+
+        const blueprintOrder = [
+            "laurelArchive",
+            "bountyBell",
+            "brassrootInstitute",
+            "clockCafe",
+            "pipyard",
+            "warroom",
+            "bowyerLodge",
+            "pikehouse",
+            "lanternCloister"
+        ];
+
+        const pageSize = 3;
+        const pageCount =
+            Math.ceil(
+                blueprintOrder.length /
+                pageSize
+            );
+
+        page = Phaser.Math.Clamp(
+            page,
+            0,
+            pageCount - 1
+        );
+
+        const keys =
+            blueprintOrder.slice(
+                page * pageSize,
+                page * pageSize + pageSize
+            );
+
+        const rows =
+            keys.map(key => {
+
+                const definition =
+                    BUILDING_DEFS[key];
+
+                const alreadyBuilt =
+                    definition.unique &&
+                    hasBuildingInSave(
+                        this.saveData,
+                        key
+                    );
+
+                const cost =
+                    this.buildingCost(key);
+
+                const affordable =
+                    this.saveData.riftglass >= cost;
+
+                return {
+                    title:
+                        definition.name +
+                        (definition.unique ? "  •  UNIQUE" : "  •  REPEATABLE"),
+                    previewTexture:
+                        definition.texture,
+                    previewScale:
+                        0.22,
+                    description:
+                        alreadyBuilt
+                            ? "This unique building already exists elsewhere in Nullmeadow."
+                            : definition.description,
+                    action:
+                        alreadyBuilt
+                            ? "BUILT"
+                            : affordable
+                                ? "BUILD"
+                                : "NEED GLASS",
+                    currencyIcon:
+                        alreadyBuilt
+                            ? null
+                            : "riftGlassIcon",
+                    costAmount:
+                        alreadyBuilt
+                            ? null
+                            : cost,
+                    ready:
+                        !alreadyBuilt &&
+                        affordable,
+                    lockedMessage:
+                        alreadyBuilt
+                            ? "Only one of these may exist."
+                            : `Short ${Math.max(0, cost - this.saveData.riftglass)} Riftglass.`,
+                    callback: () =>
+                        this.constructBuilding(
+                            lot,
+                            key
+                        )
+                };
+
+            });
+
+        if (page > 0) {
+            rows.push({
+                title: "Previous blueprints",
+                description: "Return to the earlier shelf of increasingly dubious civic planning.",
+                action: "BACK",
+                callback: () =>
+                    this.openBuildMenu(
+                        lot,
+                        page - 1
+                    )
+            });
+        }
+
+        if (page < pageCount - 1) {
+            rows.push({
+                title: "More blueprints",
+                description: "There are, regrettably, more ways to urbanize the meadow.",
+                action: "NEXT",
+                callback: () =>
+                    this.openBuildMenu(
+                        lot,
+                        page + 1
+                    )
+            });
+        }
+
+        this.openHubPanel(
+            `${lot.id.toUpperCase()} • BUILD`,
+            `Riftglass ${compactAmount(this.saveData.riftglass)} • BLUEPRINTS ${page + 1}/${pageCount}`,
+            rows
+        );
+
+    }
+
+
+    constructBuilding(lot, key) {
+
+        const definition =
+            BUILDING_DEFS[key];
+
+        if (!lot?.unlocked || !definition) {
+            return;
+        }
+
+        if (this.saveData.buildings?.[lot.id]) {
+            this.showHudToast("That lot already has a building.");
+            return;
+        }
+
+        if (
+            definition.unique &&
+            hasBuildingInSave(
+                this.saveData,
+                key
+            )
+        ) {
+            this.showHudToast(`${definition.name} is unique.`);
+            return;
+        }
+
+        const cost =
+            this.buildingCost(key);
+
+        if (this.saveData.riftglass < cost) {
+            this.showHudToast(
+                `Need ${cost - this.saveData.riftglass} more Riftglass.`
+            );
+            return;
+        }
+
+        this.saveData.riftglass -= cost;
+        this.saveData.buildings[lot.id] = key;
+
+        persistSave(this.saveData);
+        this.registry.set("saveData", this.saveData);
+        AudioDirector.playEffect("upgrade");
+
+        this.closeHubPanel();
+        this.showHudToast(`${definition.name} founded.`);
+
+        this.cameras.main.flash(
+            180,
+            218,
+            194,
+            255
+        );
+
+        this.time.delayedCall(
+            240,
+            () => this.scene.restart()
+        );
+
+    }
+
+
+    openBuildingPanel(lot, key) {
+
+        const definition =
+            BUILDING_DEFS[key];
+
+        if (!definition) {
+            return;
+        }
+
+        if (key === "laurelArchive") {
+            this.openAchievementPanel();
+            return;
+        }
+
+        if (key === "bountyBell") {
+            this.openBountyPanel();
+            return;
+        }
+
+        if (key === "brassrootInstitute") {
+            this.openTechPanel();
+            return;
+        }
+
+        let effect = definition.description;
+
+        if (key === "clockCafe") {
+            effect = "Clockwork Helpers travel faster and their automatic dispatch cycle is 22% shorter.";
+        } else if (key === "pipyard") {
+            effect = "Pip moves 12% faster in Nullmeadow, moves faster in Riftfall, and gains +1 Riftfall health.";
+        } else if (key === "warroom") {
+            effect = "All recruited soldiers deal +35% damage in Riftfall.";
+        } else if (key === "bowyerLodge") {
+            effect = `${buildingCountInSave(this.saveData, key)} Bowyer Lodge(s) • that many archers join every Riftfall.`;
+        } else if (key === "pikehouse") {
+            effect = `${buildingCountInSave(this.saveData, key)} Pikehouse(s) • that many lancers join every Riftfall.`;
+        } else if (key === "lanternCloister") {
+            effect = `${buildingCountInSave(this.saveData, key)} Lantern Cloister(s) • that many monks join every Riftfall and heal Pip.`;
+        }
+
+        this.openHubPanel(
+            definition.name.toUpperCase(),
+            `${lot.id.toUpperCase()} • OPERATIONAL`,
+            [
+                {
+                    title: "Settlement effect",
+                    description: effect,
+                    action: "ACTIVE",
+                    callback: () => {}
+                }
+            ]
+        );
+
+    }
+
+
+    openAchievementPanel() {
+
+        const rows =
+            ACHIEVEMENT_DEFS.map(definition => {
+
+                const claimed =
+                    this.saveData.claimedAchievements.includes(
+                        definition.id
+                    );
+
+                const unlocked =
+                    Boolean(
+                        definition.test(this.saveData)
+                    );
+
+                return {
+                    title: definition.title,
+                    description:
+                        `${definition.description} • Reward: ${this.formatMetaReward(definition.reward)}`,
+                    action:
+                        claimed
+                            ? "CLAIMED"
+                            : unlocked
+                                ? "CLAIM"
+                                : "LOCKED",
+                    ready:
+                        claimed
+                            ? true
+                            : unlocked,
+                    lockedMessage:
+                        claimed
+                            ? "Already claimed."
+                            : "Achievement not completed yet.",
+                    callback: () =>
+                        this.claimAchievement(
+                            definition.id
+                        )
+                };
+
+            });
+
+        this.openHubPanel(
+            "LAUREL ARCHIVE",
+            "Achievements exist only because you built somewhere to keep them.",
+            rows
+        );
+
+    }
+
+
+    claimAchievement(id) {
+
+        const definition =
+            ACHIEVEMENT_DEFS.find(
+                item => item.id === id
+            );
+
+        if (
+            !definition ||
+            this.saveData.claimedAchievements.includes(id) ||
+            !definition.test(this.saveData)
+        ) {
+            return;
+        }
+
+        this.saveData.claimedAchievements.push(id);
+        this.saveData.riftglass += definition.reward.riftglass || 0;
+        this.saveData.dawnseals += definition.reward.dawnseals || 0;
+        this.glimmerOwned += definition.reward.glimmer || 0;
+        this.saveData.glimmer = this.glimmerOwned;
+
+        persistSave(this.saveData);
+        this.updateHUD();
+        AudioDirector.playEffect("win");
+        this.closeHubPanel();
+        this.showHudToast(
+            `${definition.title} • ${this.formatMetaReward(definition.reward)}`
+        );
+
+        this.time.delayedCall(
+            350,
+            () => this.openAchievementPanel()
+        );
+
+    }
+
+
+    openBountyPanel() {
+
+        const { state, definition } =
+            ensureRotatingBounty(
+                this.saveData
+            );
+
+        const progress =
+            Phaser.Math.Clamp(
+                Math.floor(Number(state.progress) || 0),
+                0,
+                definition.target
+            );
+
+        const complete =
+            progress >= definition.target;
+
+        this.openHubPanel(
+            "BOUNTY BELL",
+            "A new contract rotates with the real-world day.",
+            [
+                {
+                    title: definition.title,
+                    description:
+                        `${definition.description} • ${progress}/${definition.target} • Reward: ${this.formatMetaReward(definition.reward)}`,
+                    action:
+                        state.claimed
+                            ? "PAID"
+                            : complete
+                                ? "CLAIM"
+                                : "WORKING",
+                    ready:
+                        state.claimed
+                            ? true
+                            : complete,
+                    lockedMessage:
+                        state.claimed
+                            ? "Today's bounty has already paid out."
+                            : "The contract is not finished yet.",
+                    callback: () =>
+                        this.claimBounty()
+                }
+            ]
+        );
+
+    }
+
+
+    claimBounty() {
+
+        const { state, definition } =
+            ensureRotatingBounty(
+                this.saveData
+            );
+
+        if (
+            state.claimed ||
+            Number(state.progress || 0) < definition.target
+        ) {
+            return;
+        }
+
+        state.claimed = true;
+        this.saveData.riftglass += definition.reward.riftglass || 0;
+        this.saveData.dawnseals += definition.reward.dawnseals || 0;
+
+        persistSave(this.saveData);
+        this.updateHUD();
+        AudioDirector.playEffect("upgrade");
+        this.closeHubPanel();
+        this.showHudToast(
+            `${definition.title} paid • ${this.formatMetaReward(definition.reward)}`
+        );
+
+    }
+
+
+    openTechPanel() {
+
+        const techDefs = [
+            {
+                key: "riftTempo",
+                title: "Rift Tempo",
+                max: 5,
+                description: "Pip attacks 8% faster per level during Riftfall."
+            },
+            {
+                key: "longstep",
+                title: "Longstep",
+                max: 5,
+                description: "Pip movement increases 4% per level everywhere."
+            },
+            {
+                key: "ironPulse",
+                title: "Iron Pulse",
+                max: 3,
+                description: "+1 maximum Riftfall health per level."
+            },
+            {
+                key: "gravemagnet",
+                title: "Gravemagnet",
+                max: 4,
+                description: "Riftglass pickup radius increases by 12 per level."
+            }
+        ];
+
+        const rows =
+            techDefs.map(definition => {
+
+                const level =
+                    this.saveData.tech[definition.key] || 0;
+
+                const maxed =
+                    level >= definition.max;
+
+                const cost =
+                    maxed
+                        ? null
+                        : 1 + level;
+
+                return {
+                    title: `${definition.title}  •  LV ${level}/${definition.max}`,
+                    description: definition.description,
+                    action:
+                        maxed
+                            ? "MAX"
+                            : this.saveData.dawnseals >= cost
+                                ? "RESEARCH"
+                                : "NEED SEAL",
+                    currencyIcon:
+                        maxed
+                            ? null
+                            : "dawnSealIcon",
+                    costAmount: cost,
+                    ready:
+                        maxed
+                            ? true
+                            : this.saveData.dawnseals >= cost,
+                    lockedMessage:
+                        maxed
+                            ? "Research complete."
+                            : `Need ${cost - this.saveData.dawnseals} more Dawnseal(s).`,
+                    callback: () =>
+                        this.buyTech(
+                            definition.key,
+                            definition.max
+                        )
+                };
+
+            });
+
+        this.openHubPanel(
+            "BRASSROOT INSTITUTE",
+            `DAWNSEALS ${compactAmount(this.saveData.dawnseals)} • permanent research`,
+            rows
+        );
+
+    }
+
+
+    buyTech(key, maxLevel) {
+
+        const level =
+            this.saveData.tech[key] || 0;
+
+        if (level >= maxLevel) {
+            return;
+        }
+
+        const cost =
+            1 + level;
+
+        if (this.saveData.dawnseals < cost) {
+            return;
+        }
+
+        this.saveData.dawnseals -= cost;
+        this.saveData.tech[key] = level + 1;
+
+        persistSave(this.saveData);
+        this.updateHUD();
+        AudioDirector.playEffect("upgrade");
+        this.closeHubPanel();
+        this.openTechPanel();
+
+    }
+
+
     openCrankhousePanel() {
 
         const crankLevel =
@@ -5275,11 +6781,8 @@ class GameScene extends Phaser.Scene {
 
         const nextAutoSeconds =
             Math.round(
-                Math.max(
-                    11000,
-                    35000 -
-                    Math.max(0, autoLevel - 1) * 6000
-                ) / 1000
+                this.autoCrankInterval() /
+                1000
             );
 
         this.openHubPanel(
@@ -5654,7 +7157,7 @@ class GameScene extends Phaser.Scene {
                         )
                         + 20,
 
-                        106,
+                        160,
 
                         GAME_HEIGHT - 188
                     );
@@ -5783,7 +7286,7 @@ class GameScene extends Phaser.Scene {
 
     autoCrankInterval() {
 
-        return Math.max(
+        const base = Math.max(
             11000,
             35000 -
             Math.max(
@@ -5791,6 +7294,18 @@ class GameScene extends Phaser.Scene {
                 this.saveData.autoCrankLevel - 1
             ) *
             6000
+        );
+
+        return Math.round(
+            base *
+            (
+                hasBuildingInSave(
+                    this.saveData,
+                    "clockCafe"
+                )
+                    ? 0.78
+                    : 1
+            )
         );
 
     }
@@ -5884,6 +7399,14 @@ class GameScene extends Phaser.Scene {
         helper.sprite.setAngle(0);
         helper.sprite.setFlipX(helper.workX < helper.sprite.x);
 
+        const helperTravelMultiplier =
+            hasBuildingInSave(
+                this.saveData,
+                "clockCafe"
+            )
+                ? 0.78
+                : 1;
+
         const travelTime =
             Phaser.Math.Clamp(
                 Phaser.Math.Distance.Between(
@@ -5891,8 +7414,8 @@ class GameScene extends Phaser.Scene {
                     helper.sprite.y,
                     helper.workX,
                     helper.workY
-                ) * 4.4,
-                420,
+                ) * 4.4 * helperTravelMultiplier,
+                320,
                 950
             );
 
@@ -6774,7 +8297,7 @@ class GameScene extends Phaser.Scene {
         const toast =
             this.add.text(
                 GAME_WIDTH / 2,
-                112,
+                170,
 
                 message,
 
@@ -6825,7 +8348,7 @@ class GameScene extends Phaser.Scene {
                 toast,
 
             y:
-                124,
+                182,
 
             alpha:
                 0,
@@ -6999,6 +8522,24 @@ class GameScene extends Phaser.Scene {
             )
         );
 
+        if (this.riftGlassHud) {
+            this.riftGlassHud.setText(
+                compactAmount(
+                    this.saveData.riftglass ||
+                    0
+                )
+            );
+        }
+
+        if (this.dawnSealHud) {
+            this.dawnSealHud.setText(
+                compactAmount(
+                    this.saveData.dawnseals ||
+                    0
+                )
+            );
+        }
+
         if (this.hubStatusText) {
             this.hubStatusText.setText(
                 `CRANKHOUSE • LV ${this.saveData.crankLevel || 0}` +
@@ -7066,16 +8607,52 @@ class GameScene extends Phaser.Scene {
             this.objectiveText
         ) {
 
-            this.objectiveText
-                .setText(
-                    "ALL GHOSTLOTS CLAIMED"
-                );
+            const buildSite =
+                this.getClosestBuildReadyLot();
 
+            if (this.riftReliquary) {
+                this.objectiveIcon
+                    .setTexture("riftGlassIcon")
+                    .setScale(0.42);
 
-            this.objectiveSubText
-                .setText(
-                    "The meadow is yours."
-                );
+                this.objectiveText
+                    .setText(
+                        "NIGHTGLASS RELIQUARY • MANIFESTED"
+                    );
+
+                this.objectiveSubText
+                    .setText(
+                        "FOLLOW THE RIFT INDICATOR"
+                    );
+            } else if (buildSite) {
+                this.objectiveIcon
+                    .setTexture("uiBuild")
+                    .setScale(0.42);
+
+                this.objectiveText
+                    .setText(
+                        `${buildSite.id.toUpperCase()} • BUILD READY`
+                    );
+
+                this.objectiveSubText
+                    .setText(
+                        "SPEND RIFTGLASS TO FOUND A BUILDING"
+                    );
+            } else {
+                this.objectiveIcon
+                    .setTexture("uiTown")
+                    .setScale(0.42);
+
+                this.objectiveText
+                    .setText(
+                        "NULLMEADOW COMPLETE"
+                    );
+
+                this.objectiveSubText
+                    .setText(
+                        "THE MEADOW IS YOURS. FOR NOW."
+                    );
+            }
 
         }
 
@@ -7202,7 +8779,21 @@ class GameScene extends Phaser.Scene {
 
         let vy = 0;
 
-        const speed = 315;
+        const speed =
+            315 *
+            (
+                hasBuildingInSave(
+                    this.saveData,
+                    "pipyard"
+                )
+                    ? 1.12
+                    : 1
+            ) *
+            (
+                1 +
+                (this.saveData.tech?.longstep || 0) *
+                0.04
+            );
 
 
         if (
@@ -7407,6 +8998,7 @@ class GameScene extends Phaser.Scene {
 
         this.updateGhostlotPrompt();
         this.updateCrankhousePrompt();
+        this.updateRiftReliquaryPrompt();
 
     }
 
@@ -7534,7 +9126,8 @@ const config = {
 
     scene: [
         GameScene,
-        ClaimRunScene
+        ClaimRunScene,
+        InvasionScene
     ]
 
 };
