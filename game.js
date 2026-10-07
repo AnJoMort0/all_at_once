@@ -14,6 +14,12 @@ DEVELOPMENT RULES
 - Keep useful project canon and asset notes here in game.js rather than creating
   bookkeeping files that do not help development.
 - Existing names become canon unless changing them materially improves the game.
+- VISUAL ASSET RULE: if the imported asset library can represent something, use the
+  asset instead of drawing a substitute icon/pictogram from Phaser primitives.
+- ASSET-FIRST UI RULE: do not fake icons/pictograms with Phaser circles, lines,
+  triangles, emoji or text glyphs when an imported asset can communicate the state.
+  Primitive geometry is still fine for layout, hit areas, world boundaries, glow and
+  effects; recognizable UI/world symbols should come from the asset library.
 
 CURRENT WORLD CANON
 - Nullmeadow: the overworld/hub settlement.
@@ -34,6 +40,11 @@ CURRENT WORLD CANON
   and may be replayed for free until that lot is claimed.
 - Valor: reward currency earned by winning Claimruns.
 - Winning permanently claims the Ghostlot, awards +1 Valor and calls the next lot.
+- Clockwork Helpers physically live around the Crankhouse. Auto-helper level equals
+  the number of visible workers. A worker walks in, performs one hammer interaction,
+  immediately walks back to its post, and only then becomes available again.
+- Nullmeadow navigation indicators appear at the screen edge for important off-screen
+  targets: the Crankhouse, the Calling Lot and the nearest claimed build-ready Ghostlot.
 - Gold-ring Meadow Caches are one-time, persistent Glimmer finds scattered through
   the generated meadow.
 - The first Claimruns are short and forgiving. Later runs add drifting Rift Walkers,
@@ -390,7 +401,24 @@ const AudioDirector = {
             this.ambientSound = null;
         }
 
-        if (this.currentMusicKey) {
+        /*
+            Audio may be requested on the same input that unlocks the
+            browser AudioContext while a scene is still finishing a lazy
+            load. Phaser throws if sound.add() receives a key that has not
+            reached the audio cache yet, so missing cache entries are simply
+            skipped. The next setSceneMusic()/lazy-load completion will sync
+            them normally.
+        */
+        const hasAudio = key =>
+            Boolean(
+                key &&
+                this.currentScene?.cache?.audio?.exists(key)
+            );
+
+        if (
+            this.currentMusicKey &&
+            hasAudio(this.currentMusicKey)
+        ) {
             this.musicSound =
                 this.currentScene.sound.add(
                     this.currentMusicKey,
@@ -405,7 +433,10 @@ const AudioDirector = {
             }
         }
 
-        if (this.currentAmbientKey) {
+        if (
+            this.currentAmbientKey &&
+            hasAudio(this.currentAmbientKey)
+        ) {
             this.ambientSound =
                 this.currentScene.sound.add(
                     this.currentAmbientKey,
@@ -584,6 +615,12 @@ const ASSETS = {
     crankhandIdle:
         "assets/images/spritesheets/characters/tiny_swords/Blue Units/Pawn/Pawn_Idle Hammer.png",
 
+    crankhandRun:
+        "assets/images/spritesheets/characters/tiny_swords/Blue Units/Pawn/Pawn_Run Hammer.png",
+
+    crankhandInteract:
+        "assets/images/spritesheets/characters/tiny_swords/Blue Units/Pawn/Pawn_Interact Hammer.png",
+
     glimmer:
         "assets/images/environment/resources/tiny_swords/Gold/Gold Resource/Gold_Resource.png",
 
@@ -672,6 +709,14 @@ const ASSETS = {
 
     uiInfo:
         "assets/images/ui/tiny_swords/UI Elements/Icons/Icon_11.png",
+
+    // Raven fantasy key used as the Ghostlot locked-state symbol.
+    uiLotLocked:
+        "assets/images/icons/raven_fantasy_icons/64x64/fc70.png",
+
+    // Imported pixel arrow for off-screen navigation pointers.
+    navArrow:
+        "assets/images/ui/controls/2d_pixel_dungeon/arrow_2.png",
 
 
     uiRoundBlue:
@@ -818,6 +863,16 @@ class GameScene extends Phaser.Scene {
         );
 
         this.load.image(
+            "uiLotLocked",
+            ASSETS.uiLotLocked
+        );
+
+        this.load.image(
+            "navArrow",
+            ASSETS.navArrow
+        );
+
+        this.load.image(
             "uiRoundBlue",
             ASSETS.uiRoundBlue
         );
@@ -915,6 +970,24 @@ class GameScene extends Phaser.Scene {
         this.load.spritesheet(
             "crankhandIdle",
             ASSETS.crankhandIdle,
+            {
+                frameWidth: 192,
+                frameHeight: 192
+            }
+        );
+
+        this.load.spritesheet(
+            "crankhandRun",
+            ASSETS.crankhandRun,
+            {
+                frameWidth: 192,
+                frameHeight: 192
+            }
+        );
+
+        this.load.spritesheet(
+            "crankhandInteract",
+            ASSETS.crankhandInteract,
             {
                 frameWidth: 192,
                 frameHeight: 192
@@ -1844,93 +1917,107 @@ class GameScene extends Phaser.Scene {
 
         if (unlocked) {
 
-            g.lineStyle(
-                8,
-                0xeaffd7,
-                0.72
-            );
+            /*
+                Asset-only state badge.
+                No procedural checkmark / circle pictogram.
+            */
 
+            const claimedBack =
+                this.add.image(
+                    x,
+                    y,
+                    "uiTinyRoundBlue"
+                )
+                .setScale(0.96)
+                .setDepth(-95)
+                .setAlpha(0.98);
 
-            g.lineBetween(
-                x - 30,
-                y + 2,
-                x - 6,
-                y + 26
-            );
+            const claimedIcon =
+                this.add.image(
+                    x,
+                    y - 1,
+                    "uiBuild"
+                )
+                .setScale(0.44)
+                .setDepth(-94)
+                .setTint(0xeaffd7);
 
+            this.tweens.add({
+                targets: claimedBack,
+                scaleX: 1.02,
+                scaleY: 1.02,
+                duration: 1200,
+                yoyo: true,
+                repeat: -1,
+                ease: "Sine.InOut"
+            });
 
-            g.lineBetween(
-                x - 6,
-                y + 26,
-                x + 38,
-                y - 28
-            );
+            this.tweens.add({
+                targets: claimedIcon,
+                y: y - 4,
+                duration: 980,
+                yoyo: true,
+                repeat: -1,
+                ease: "Sine.InOut"
+            });
 
         } else {
 
-            const lockY =
-                y - 4;
+            /*
+                Locked Ghostlots also use imported art.
+                The Raven fantasy key is intentionally mixed
+                with the Tiny Swords button, matching the game's
+                asset-collision aesthetic.
+            */
 
+            const lockedBack =
+                this.add.image(
+                    x,
+                    y,
+                    active
+                        ? "uiTinyRoundBlue"
+                        : "uiTinyRoundRed"
+                )
+                .setScale(active ? 0.98 : 0.90)
+                .setDepth(-95)
+                .setAlpha(active ? 1 : 0.78);
 
-            g.lineStyle(
-                6,
+            const lockedIcon =
+                this.add.image(
+                    x,
+                    y - 1,
+                    "uiLotLocked"
+                )
+                .setScale(active ? 0.62 : 0.56)
+                .setDepth(-94)
+                .setTint(active ? 0xffef9a : 0xe8d8c3)
+                .setAlpha(active ? 1 : 0.80);
 
-                active
-                    ? 0xffe981
-                    : 0xe7d79d,
+            if (active) {
 
-                active
-                    ? 0.80
-                    : 0.46
-            );
+                this.tweens.add({
+                    targets: lockedBack,
+                    scaleX: 1.04,
+                    scaleY: 1.04,
+                    duration: 720,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: "Sine.InOut"
+                });
 
+                this.tweens.add({
+                    targets: lockedIcon,
+                    scaleX: 0.67,
+                    scaleY: 0.67,
+                    angle: 7,
+                    duration: 180,
+                    yoyo: true,
+                    repeat: -1,
+                    repeatDelay: 520,
+                    ease: "Sine.InOut"
+                });
 
-            g.strokeCircle(
-                x,
-                lockY - 17,
-                17
-            );
-
-
-            g.fillStyle(
-                active
-                    ? 0x756125
-                    : 0x5b573f,
-
-                0.78
-            );
-
-
-            g.fillRoundedRect(
-                x - 27,
-                lockY - 10,
-                54,
-                46,
-                8
-            );
-
-
-            g.fillStyle(
-                0xf2d477,
-                active
-                    ? 0.88
-                    : 0.55
-            );
-
-
-            g.fillCircle(
-                x,
-                lockY + 8,
-                5
-            );
-
-
-            g.fillRect(
-                x - 3,
-                lockY + 8,
-                6,
-                13
-            );
+            }
 
         }
 
@@ -3071,10 +3158,10 @@ class GameScene extends Phaser.Scene {
         }
 
 
-        for (const [key, texture, end, frameRate] of [
-            ["crankhand-sleep", "crankhandIdle", 7, 5],
-            ["crankhand-run", "pipRun", 5, 10],
-            ["crankhand-work", "crankhandIdle", 7, 9]
+        for (const [key, texture, end, frameRate, repeat] of [
+            ["crankhand-idle", "crankhandIdle", 7, 7, -1],
+            ["crankhand-run", "crankhandRun", 5, 11, -1],
+            ["crankhand-work", "crankhandInteract", 2, 10, 0]
         ]) {
             if (!this.anims.exists(key)) {
                 this.anims.create({
@@ -3087,7 +3174,7 @@ class GameScene extends Phaser.Scene {
                         }
                     ),
                     frameRate,
-                    repeat: -1
+                    repeat
                 });
             }
         }
@@ -3102,131 +3189,385 @@ class GameScene extends Phaser.Scene {
 
     createCrankhouseHelpers() {
 
-        this.crankhouseHelpers = [];
+        if (this.crankhouseHelpers) {
+            for (const helper of this.crankhouseHelpers) {
+                this.tweens.killTweensOf(helper.sprite);
+                if (helper.sprite?.active) {
+                    helper.sprite.destroy();
+                }
+            }
+        }
 
+        this.crankhouseHelpers = [];
+        this.helperDispatchIndex = 0;
+
+        const helperLevel =
+            Phaser.Math.Clamp(
+                Math.floor(Number(this.saveData.autoCrankLevel) || 0),
+                0,
+                5
+            );
+
+        /*
+            One visible worker per helper level.
+            The worker sprite itself communicates the state; no fake beds / Z shapes.
+        */
         const helperSpots = [
             {
-                x: this.worldCenter.x - 166,
-                y: this.worldCenter.y + 136,
-                restX: this.worldCenter.x - 166,
-                restY: this.worldCenter.y + 129,
-                workX: this.worldCenter.x - 45,
+                restX: this.worldCenter.x - 205,
+                restY: this.worldCenter.y + 130,
+                workX: this.worldCenter.x - 63,
+                workY: this.worldCenter.y + 82,
                 tint: 0xd8efff
             },
             {
-                x: this.worldCenter.x + 166,
-                y: this.worldCenter.y + 142,
-                restX: this.worldCenter.x + 166,
-                restY: this.worldCenter.y + 135,
-                workX: this.worldCenter.x + 45,
+                restX: this.worldCenter.x + 205,
+                restY: this.worldCenter.y + 132,
+                workX: this.worldCenter.x + 63,
+                workY: this.worldCenter.y + 82,
                 tint: 0xffdfaf
+            },
+            {
+                restX: this.worldCenter.x - 185,
+                restY: this.worldCenter.y - 102,
+                workX: this.worldCenter.x - 70,
+                workY: this.worldCenter.y - 34,
+                tint: 0xc9f6c2
+            },
+            {
+                restX: this.worldCenter.x + 185,
+                restY: this.worldCenter.y - 96,
+                workX: this.worldCenter.x + 70,
+                workY: this.worldCenter.y - 34,
+                tint: 0xffc1d7
+            },
+            {
+                restX: this.worldCenter.x,
+                restY: this.worldCenter.y + 220,
+                workX: this.worldCenter.x,
+                workY: this.worldCenter.y + 103,
+                tint: 0xe5d2ff
             }
         ];
 
-        for (const spot of helperSpots) {
-            const offsetX =
-                Phaser.Math.Between(-24, 24);
-            const offsetY =
-                Phaser.Math.Between(-14, 14);
+        helperSpots
+            .slice(0, helperLevel)
+            .forEach((spot, index) => {
 
-            spot.x += offsetX;
-            spot.restX += offsetX;
-            spot.y += offsetY;
-            spot.restY += offsetY;
-        }
+                const sprite =
+                    this.add.sprite(
+                        spot.restX,
+                        spot.restY,
+                        "crankhandIdle",
+                        index % 8
+                    )
+                    .setOrigin(0.5, 0.72)
+                    .setScale(0.36)
+                    .setTint(spot.tint)
+                    .setDepth(spot.restY + 8)
+                    .play("crankhand-idle");
 
-        for (const [index, spot] of helperSpots.entries()) {
-            this.add.ellipse(
-                spot.x,
-                spot.y + 7,
-                78,
-                35,
-                0x16251c,
-                0.19
-            )
-            .setDepth(spot.y - 4);
+                this.crankhouseHelpers.push({
+                    ...spot,
+                    sprite,
+                    busy: false,
+                    index,
+                    cranksPerVisit: 1
+                });
 
-            const bedroll =
-                this.add.graphics()
-                    .setDepth(spot.y - 3);
+            });
 
-            bedroll.fillStyle(
-                index === 0 ? 0x678a83 : 0x9b7858,
-                0.96
-            );
-            bedroll.fillRoundedRect(
-                spot.x - 32,
-                spot.y - 10,
-                64,
-                22,
-                9
-            );
-            bedroll.lineStyle(
-                2,
-                index === 0 ? 0xb6d8c5 : 0xe4c593,
-                0.84
-            );
-            bedroll.strokeRoundedRect(
-                spot.x - 32,
-                spot.y - 10,
-                64,
-                22,
-                9
-            );
-            bedroll.lineBetween(
-                spot.x + 15,
-                spot.y - 7,
-                spot.x + 15,
-                spot.y + 8
-            );
+    }
 
-            const sprite =
-                this.add.sprite(
-                    spot.x,
-                    spot.y - 7,
-                    "crankhandIdle",
-                    0
-                )
-                .setOrigin(0.5, 0.72)
-                .setScale(0.33)
-                .setTint(spot.tint)
-                .setAngle(90)
-                .setDepth(spot.y + 8)
-                .play("crankhand-sleep");
 
-            const zzz =
+    createNavigationIndicators() {
+
+        this.navIndicators = [];
+        this.navIndicatorActions = [];
+
+        const makeIndicator = ({ key, label, iconTexture, iconScale, targetProvider }) => {
+
+            const root =
+                this.add.container(0, 0)
+                    .setVisible(false)
+                    .setDepth(135000);
+
+            const plate =
+                this.add.image(0, 0, "uiTinyRoundBlue")
+                    .setScale(0.92);
+
+            const icon =
+                this.add.image(0, 1, iconTexture)
+                    .setScale(iconScale);
+
+            const arrow =
+                this.add.image(0, -35, "navArrow")
+                    .setScale(1.65);
+
+            const tag =
                 this.add.text(
-                    spot.x + 22,
-                    spot.y - 34,
-                    "Z",
+                    0,
+                    37,
+                    label,
                     {
-                        fontFamily: FONT_DISPLAY,
-                        fontSize: "17px",
-                        color: "#f6edc7",
-                        stroke: "#28372c",
-                        strokeThickness: 3
+                        fontFamily: FONT_TECH,
+                        fontSize: "10px",
+                        fontStyle: "bold",
+                        color: "#fff3c5",
+                        stroke: "#0b111a",
+                        strokeThickness: 4
                     }
                 )
-                .setDepth(spot.y + 12)
-                .setAlpha(0.82);
+                .setOrigin(0.5);
 
-            this.tweens.add({
-                targets: zzz,
-                y: zzz.y - 8,
-                alpha: 0.35,
-                duration: 900 + index * 180,
-                yoyo: true,
-                repeat: -1,
-                ease: "Sine.InOut"
-            });
+            root.add([plate, icon, arrow, tag]);
+            this.hudRoot.add(root);
 
-            this.crankhouseHelpers.push({
-                ...spot,
-                sprite,
-                zzz,
-                busy: false
-            });
+            const indicator = {
+                key,
+                root,
+                plate,
+                icon,
+                arrow,
+                tag,
+                targetProvider,
+                currentTarget: null
+            };
+
+            this.navIndicators.push(indicator);
+            this.navIndicatorActions.push(indicator);
+
+            return indicator;
+
+        };
+
+        makeIndicator({
+            key: "crankhouse",
+            label: "CRANK",
+            iconTexture: "crankhouse",
+            iconScale: 0.24,
+            targetProvider: () => ({
+                x: this.worldCenter.x,
+                y: this.worldCenter.y,
+                name: "Crankhouse"
+            })
+        });
+
+        makeIndicator({
+            key: "calling",
+            label: "CLAIM",
+            iconTexture: "uiLotLocked",
+            iconScale: 0.42,
+            targetProvider: () =>
+                this.activeGhostlot
+                    ? {
+                        x: this.activeGhostlot.x,
+                        y: this.activeGhostlot.y,
+                        name: this.activeGhostlot.id
+                    }
+                    : null
+        });
+
+        makeIndicator({
+            key: "build",
+            label: "BUILD",
+            iconTexture: "uiBuild",
+            iconScale: 0.42,
+            targetProvider: () => {
+                const site = this.getClosestBuildReadyLot();
+                return site
+                    ? { x: site.x, y: site.y, name: site.id }
+                    : null;
+            }
+        });
+
+    }
+
+
+    getClosestBuildReadyLot() {
+
+        if (!this.player || !this.ghostlots) {
+            return null;
         }
+
+        const candidates =
+            this.ghostlots
+                .filter(lot => lot.unlocked)
+                .sort(
+                    (a, b) =>
+                        Phaser.Math.Distance.Between(
+                            this.player.x,
+                            this.player.y,
+                            a.x,
+                            a.y
+                        )
+                        -
+                        Phaser.Math.Distance.Between(
+                            this.player.x,
+                            this.player.y,
+                            b.x,
+                            b.y
+                        )
+                );
+
+        return candidates[0] || null;
+
+    }
+
+
+    updateNavigationIndicators() {
+
+        if (!this.navIndicators?.length) {
+            return;
+        }
+
+        const camera = this.cameras.main;
+        const safe = {
+            left: 54,
+            right: GAME_WIDTH - 54,
+            top: 118,
+            bottom: GAME_HEIGHT - 92
+        };
+
+        const centerX = GAME_WIDTH / 2;
+        const centerY = (safe.top + safe.bottom) / 2;
+        const occupied = [];
+
+        for (const indicator of this.navIndicators) {
+
+            const target = indicator.targetProvider?.();
+            indicator.currentTarget = target;
+
+            if (!target) {
+                indicator.root.setVisible(false);
+                continue;
+            }
+
+            const screenX =
+                (target.x - camera.worldView.x) * camera.zoom;
+            const screenY =
+                (target.y - camera.worldView.y) * camera.zoom;
+
+            const onScreen =
+                screenX >= safe.left + 18 &&
+                screenX <= safe.right - 18 &&
+                screenY >= safe.top + 18 &&
+                screenY <= safe.bottom - 18;
+
+            if (onScreen) {
+                indicator.root.setVisible(false);
+                continue;
+            }
+
+            const dx = screenX - centerX;
+            const dy = screenY - centerY;
+            const candidates = [];
+
+            if (Math.abs(dx) > 0.001) {
+                candidates.push(
+                    dx > 0
+                        ? (safe.right - centerX) / dx
+                        : (safe.left - centerX) / dx
+                );
+            }
+
+            if (Math.abs(dy) > 0.001) {
+                candidates.push(
+                    dy > 0
+                        ? (safe.bottom - centerY) / dy
+                        : (safe.top - centerY) / dy
+                );
+            }
+
+            const positiveCandidates =
+                candidates.filter(value => value > 0);
+
+            const t =
+                positiveCandidates.length
+                    ? Math.min(...positiveCandidates)
+                    : 1;
+
+            let x =
+                Phaser.Math.Clamp(
+                    centerX + dx * t,
+                    safe.left,
+                    safe.right
+                );
+
+            let y =
+                Phaser.Math.Clamp(
+                    centerY + dy * t,
+                    safe.top,
+                    safe.bottom
+                );
+
+            for (const used of occupied) {
+                if (
+                    Phaser.Math.Distance.Between(
+                        x,
+                        y,
+                        used.x,
+                        used.y
+                    ) < 58
+                ) {
+                    const nudge = y < centerY ? 58 : -58;
+                    y = Phaser.Math.Clamp(
+                        y + nudge,
+                        safe.top,
+                        safe.bottom
+                    );
+                }
+            }
+
+            occupied.push({ x, y });
+
+            const angle = Math.atan2(dy, dx);
+
+            indicator.root
+                .setPosition(x, y)
+                .setVisible(true);
+
+            indicator.arrow.setPosition(
+                Math.cos(angle) * 34,
+                Math.sin(angle) * 34
+            );
+
+            // Source arrow points down; rotate that direction toward the target.
+            indicator.arrow.setRotation(angle - Math.PI / 2);
+
+        }
+
+    }
+
+
+    handleNavigationIndicatorTap(pointer) {
+
+        const hit =
+            this.navIndicatorActions
+                ?.slice()
+                .reverse()
+                .find(indicator =>
+                    indicator.root.visible &&
+                    Phaser.Math.Distance.Between(
+                        pointer.x,
+                        pointer.y,
+                        indicator.root.x,
+                        indicator.root.y
+                    ) <= 34
+                );
+
+        if (!hit?.currentTarget) {
+            return false;
+        }
+
+        AudioDirector.playEffect("click");
+
+        this.walkTo(
+            hit.currentTarget.x,
+            hit.currentTarget.y
+        );
+
+        return true;
 
     }
 
@@ -3817,6 +4158,10 @@ class GameScene extends Phaser.Scene {
 
                 }
 
+                if (this.handleNavigationIndicatorTap(pointer)) {
+                    return;
+                }
+
                 if (this.crankhouseUpgradePrompt?.visible) {
                     const pointerWorld =
                         pointer.positionToCamera(
@@ -4314,6 +4659,8 @@ class GameScene extends Phaser.Scene {
 
 
         this.createHudTooltipLayer();
+
+        this.createNavigationIndicators();
 
         this.updateHUD();
 
@@ -5011,6 +5358,7 @@ class GameScene extends Phaser.Scene {
                         this.saveData.autoCrankLevel =
                             autoLevel + 1;
                         persistSave(this.saveData);
+                        this.createCrankhouseHelpers();
                         this.startAutoCrank();
                         AudioDirector.playEffect("upgrade");
                         this.updateHUD();
@@ -5035,9 +5383,32 @@ class GameScene extends Phaser.Scene {
         const sfxOn =
             this.saveData.sfxEnabled !== false;
 
+        const zoomPresets = [
+            0.8,
+            1.0,
+            1.2,
+            1.4,
+            1.6
+        ];
+
+        const currentZoom =
+            this.cameras.main.zoom;
+
+        let presetIndex =
+            zoomPresets.findIndex(
+                zoom =>
+                    Math.abs(
+                        zoom - currentZoom
+                    ) < 0.04
+            );
+
+        if (presetIndex < 0) {
+            presetIndex = 1;
+        }
+
         this.openHubPanel(
             "MEADOW SETTINGS",
-            "",
+            "A tiny menu for noise and camera meddling.",
             [
                 {
                     title: "Meadow music",
@@ -5065,6 +5436,28 @@ class GameScene extends Phaser.Scene {
                         );
                         this.closeHubPanel();
                         this.openSettingsPanel();
+                    }
+                },
+                {
+                    title: `Camera zoom  •  ${Math.round(currentZoom * 100)}%`,
+                    description: "Mouse wheel, trackpad and pinch all work too. Tap to cycle preset zooms.",
+                    action: "CYCLE",
+                    callback: () => {
+                        const nextZoom =
+                            zoomPresets[
+                                (presetIndex + 1) %
+                                zoomPresets.length
+                            ];
+
+                        this.setNullmeadowZoom(
+                            nextZoom
+                        );
+
+                        this.closeHubPanel();
+                        this.openSettingsPanel();
+                        this.showHudToast(
+                            `Camera zoom ${Math.round(nextZoom * 100)}%`
+                        );
                     }
                 }
             ]
@@ -5457,26 +5850,39 @@ class GameScene extends Phaser.Scene {
 
     sendHelperToCrankhouse() {
 
-        const helper =
-            this.crankhouseHelpers?.find(
-                candidate => !candidate.busy
-            );
+        if (!this.crankhouseHelpers?.length) {
+            return;
+        }
 
+        let helper = null;
+
+        for (
+            let offset = 0;
+            offset < this.crankhouseHelpers.length;
+            offset++
+        ) {
+            const index =
+                (this.helperDispatchIndex + offset) %
+                this.crankhouseHelpers.length;
+
+            if (!this.crankhouseHelpers[index].busy) {
+                helper = this.crankhouseHelpers[index];
+                this.helperDispatchIndex =
+                    (index + 1) %
+                    this.crankhouseHelpers.length;
+                break;
+            }
+        }
+
+        // Passive production is never granted invisibly; a worker has to do it.
         if (!helper) {
-            this.grantPassiveGlimmer();
             return;
         }
 
         helper.busy = true;
-        helper.zzz.setVisible(false);
-        helper.sprite.play("crankhand-run");
+        helper.sprite.play("crankhand-run", true);
         helper.sprite.setAngle(0);
-        helper.sprite.setFlipX(
-            helper.workX < helper.x
-        );
-
-        const workY =
-            this.worldCenter.y + 92;
+        helper.sprite.setFlipX(helper.workX < helper.sprite.x);
 
         const travelTime =
             Phaser.Math.Clamp(
@@ -5484,58 +5890,99 @@ class GameScene extends Phaser.Scene {
                     helper.sprite.x,
                     helper.sprite.y,
                     helper.workX,
-                    workY
-                ) * 5,
-                450,
-                1050
+                    helper.workY
+                ) * 4.4,
+                420,
+                950
             );
+
+        const returnHome = () => {
+
+            helper.sprite.play("crankhand-run", true);
+            helper.sprite.setFlipX(helper.restX < helper.workX);
+
+            this.tweens.add({
+                targets: helper.sprite,
+                x: helper.restX,
+                y: helper.restY,
+                duration: travelTime,
+                ease: "Sine.InOut",
+                onUpdate: () => {
+                    helper.sprite.setDepth(helper.sprite.y + 8);
+                },
+                onComplete: () => {
+                    helper.sprite.setFlipX(false);
+                    helper.sprite.play("crankhand-idle", true);
+                    helper.sprite.setDepth(helper.restY + 8);
+                    helper.busy = false;
+                }
+            });
+
+        };
 
         this.tweens.add({
             targets: helper.sprite,
             x: helper.workX,
-            y: workY,
+            y: helper.workY,
             duration: travelTime,
             ease: "Sine.InOut",
+            onUpdate: () => {
+                helper.sprite.setDepth(helper.sprite.y + 14);
+            },
             onComplete: () => {
-                helper.sprite.play("crankhand-work");
+
                 helper.sprite.setFlipX(false);
-                helper.sprite.setDepth(workY + 14);
-                AudioDirector.playEffect("crank");
+                helper.sprite.setDepth(helper.workY + 14);
 
-                this.tweens.add({
-                    targets: this.crankhouse,
-                    scaleX: 1.14,
-                    scaleY: 1.14,
-                    duration: 120,
-                    yoyo: true,
-                    repeat: 2,
-                    onComplete: () => {
-                        this.grantPassiveGlimmer();
+                /*
+                    One visit currently means exactly one crank.
+                    cranksPerVisit exists for a later multi-crank helper upgrade.
+                */
+                helper.sprite.once(
+                    "animationcomplete-crankhand-work",
+                    () => {
 
-                        this.time.delayedCall(550, () => {
-                            helper.sprite.play("crankhand-run");
-                            helper.sprite.setFlipX(
-                                helper.restX < helper.workX
-                            );
+                        for (
+                            let crank = 0;
+                            crank < helper.cranksPerVisit;
+                            crank++
+                        ) {
+                            this.grantPassiveGlimmer();
+                        }
 
-                            this.tweens.add({
-                                targets: helper.sprite,
-                                x: helper.restX,
-                                y: helper.restY,
-                                duration: travelTime,
-                                ease: "Sine.InOut",
-                                onComplete: () => {
-                                    helper.sprite.setAngle(90);
-                                    helper.sprite.setFlipX(false);
-                                    helper.sprite.play("crankhand-sleep");
-                                    helper.sprite.setDepth(helper.restY + 8);
-                                    helper.zzz.setVisible(true);
-                                    helper.busy = false;
-                                }
-                            });
+                        AudioDirector.playEffect("crank");
+
+                        /*
+                            IMPORTANT:
+                            Helper state must never depend on a tween attached
+                            to the Crankhouse itself.
+
+                            Manual cranking intentionally kills Crankhouse
+                            tweens so the click feedback can restart cleanly.
+                            Previously that could also kill this helper pulse
+                            before its onComplete callback fired, leaving the
+                            worker permanently parked beside the building.
+
+                            The building pulse is now purely cosmetic; the
+                            worker starts going home independently as soon as
+                            its single crank is complete.
+                        */
+                        this.tweens.add({
+                            targets: this.crankhouse,
+                            scaleX: 1.13,
+                            scaleY: 1.13,
+                            duration: 90,
+                            yoyo: true,
+                            repeat: 0
                         });
+
+                        returnHome();
+
                     }
-                });
+                );
+
+                helper.sprite.play("crankhand-work", true);
+
             }
         });
 
@@ -6690,6 +7137,7 @@ class GameScene extends Phaser.Scene {
             the world-camera zoom later.
         */
         this.syncHudToCameraZoom();
+        this.updateNavigationIndicators();
 
         const body =
             this.player.body;

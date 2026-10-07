@@ -36,7 +36,11 @@ class ClaimRunScene extends Phaser.Scene {
 
         for (const [key, path] of [
             ["uiRoundRed", ASSETS.uiRoundRed],
-            ["uiTown", ASSETS.uiTown]
+            ["uiTown", ASSETS.uiTown],
+            ["uiTinyRoundBlue", ASSETS.uiTinyRoundBlue],
+            ["uiBuild", ASSETS.uiBuild],
+            ["uiValor", ASSETS.uiValor],
+            ["uiSettings", ASSETS.uiSettings]
         ]) {
             if (!this.textures.exists(key)) {
                 this.load.image(key, path);
@@ -49,7 +53,8 @@ class ClaimRunScene extends Phaser.Scene {
             ["enemyHit", ASSETS.enemyHit],
             ["powerUp", ASSETS.powerUp],
             ["powerDown", ASSETS.powerDown],
-            ["claimrunTheme", ASSETS.claimrunTheme]
+            ["claimrunTheme", ASSETS.claimrunTheme],
+            ["meadowWind", ASSETS.meadowWind]
         ]) {
             if (!this.cache.audio.exists(key)) {
                 this.load.audio(key, path);
@@ -121,19 +126,15 @@ class ClaimRunScene extends Phaser.Scene {
         ============================================================
         */
 
-        const openedRunIndex =
-            this.saveData
-                .openedClaimruns
-                .indexOf(this.lotId);
-
+        /*
+            Difficulty is based on SUCCESSFUL claims.
+            This fixes the old openedClaimruns-index bug that could keep retries /
+            later lots near Run 1 difficulty. A failed retry stays on the same tier.
+        */
         this.difficulty =
             Math.max(
                 1,
-                openedRunIndex >= 0
-                    ? openedRunIndex + 1
-                    : this.saveData
-                        .openedClaimruns
-                        .length + 1
+                (this.saveData.unlockedLots || []).length + 1
             );
 
         AudioDirector.setPreferences(
@@ -165,82 +166,96 @@ class ClaimRunScene extends Phaser.Scene {
         this.registry.set("saveData", this.saveData);
 
         this.totalEnemies =
-            8 +
-            (this.difficulty - 1) * 4 +
-            Math.max(
-                0,
-                this.difficulty - 3
-            ) * 2;
+            Math.min(
+                185,
+                12 +
+                (this.difficulty - 1) * 8 +
+                Math.max(0, this.difficulty - 3) * 6 +
+                Math.floor(
+                    Math.pow(this.difficulty, 1.22) * 1.25
+                )
+            );
 
 
         this.totalGatePairs =
             Math.min(
-                12,
-                1 +
-                Math.floor(
-                    (this.difficulty - 1) * 0.62
+                20,
+                Math.max(
+                    3,
+                    Math.ceil(
+                        this.totalEnemies /
+                        (this.difficulty >= 8 ? 6 : 7)
+                    )
+                )
+            );
+
+        /*
+            Absolute safety cap for dynamically extended support walls.
+
+            The cap now scales with the horde. Earlier versions could exhaust
+            every planned wall while a long high-level horde was still spawning.
+            This remains bounded, but leaves enough upgrade/avoidance decisions
+            to support the late game.
+        */
+        this.maxGatePairs =
+            Math.min(
+                34,
+                Math.max(
+                    this.totalGatePairs + 4,
+                    Math.ceil(this.totalEnemies / 5)
                 )
             );
 
 
         this.enemySpawnDelay =
             Math.max(
-                400,
-
-                1220 -
-                (
-                    this.difficulty -
-                    1
-                )
-                *
-                72
+                235,
+                900 -
+                (this.difficulty - 1) * 54
             );
 
 
         this.enemyBaseSpeed =
-            55 +
-            (
-                this.difficulty -
-                1
-            )
-            *
-            6;
+            58 +
+            (this.difficulty - 1) * 7.2;
+
+
+        /*
+            Claimrun now has an intentional opening phase.
+
+            Until the first gate has actually reached Pip, enemies arrive as
+            slow single targets. The first wall is the player's bootstrap:
+            after it resolves, the normal procedural horde starts ramping.
+        */
+        this.openingPhase = true;
 
 
         this.enemyBaseHp =
-            this.difficulty < 5
+            this.difficulty < 3
                 ? 1
-                : 2 +
+                : 1 +
                   Math.floor(
-                      (this.difficulty - 5) / 4
+                      (this.difficulty - 1) / 3
                   );
 
 
         this.gateSpeed =
-            105 +
+            110 +
             Math.min(
-                85,
-
-                (
-                    this.difficulty -
-                    1
-                )
-                *
-                6.2
+                120,
+                (this.difficulty - 1) * 9
             );
 
 
+        /*
+            This is now the CENTER of a procedural interval range, not a fixed
+            repeating timer. Later runs deliberately create bursty wall timings.
+        */
         this.gateSpawnDelay =
             Math.max(
-                2500,
-
-                3450 -
-                (
-                    this.difficulty -
-                    1
-                )
-                *
-                100
+                1450,
+                3250 -
+                (this.difficulty - 1) * 145
             );
 
 
@@ -252,9 +267,14 @@ class ClaimRunScene extends Phaser.Scene {
 
 
         this.integrityMax =
-            this.difficulty < 3
-                ? 7 + this.wardenSigils
-                : 5 + this.wardenSigils;
+            (
+                this.difficulty < 3
+                    ? 7
+                    : this.difficulty < 7
+                        ? 5
+                        : 4
+            ) +
+            this.wardenSigils;
 
         this.integrity =
             this.integrityMax;
@@ -290,6 +310,21 @@ class ClaimRunScene extends Phaser.Scene {
 
         this.playerTargetX =
             GAME_WIDTH / 2;
+
+        this.events.once(
+            Phaser.Scenes.Events.SHUTDOWN,
+            () => {
+                if (this.enemySpawnEvent) {
+                    try { this.enemySpawnEvent.remove(false); } catch (_) {}
+                    this.enemySpawnEvent = null;
+                }
+
+                if (this.gateSpawnEvent) {
+                    try { this.gateSpawnEvent.remove(false); } catch (_) {}
+                    this.gateSpawnEvent = null;
+                }
+            }
+        );
 
 
         this.physics.world.setBounds(
@@ -368,6 +403,44 @@ class ClaimRunScene extends Phaser.Scene {
 
 
     createClaimAnimations() {
+
+        /*
+            ClaimRunScene is now its own file/scene, so it must create every
+            animation it plays itself. Relying on GameScene to have previously
+            registered skeleton-move caused "Missing animation: skeleton-move"
+            on fresh loads and direct Claimrun retries.
+        */
+        if (
+            !this.anims.exists(
+                "skeleton-move"
+            )
+        ) {
+
+            this.anims.create({
+
+                key:
+                    "skeleton-move",
+
+                frames:
+                    this.anims
+                        .generateFrameNumbers(
+                            "skeletonMove",
+                            {
+                                start: 0,
+                                end: 9
+                            }
+                        ),
+
+                frameRate:
+                    10,
+
+                repeat:
+                    -1
+
+            });
+
+        }
+
 
         if (
             !this.anims.exists(
@@ -1245,18 +1318,17 @@ class ClaimRunScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
+        /*
+            Asset-first pause/menu symbol.
+            No text glyph pretending to be an icon.
+        */
         this.pauseButtonText =
-            this.add.text(
+            this.add.image(
                 660,
                 1232,
-                "Ⅱ",
-                {
-                    fontFamily: FONT_DISPLAY,
-                    fontSize: "19px",
-                    color: "#ffffff"
-                }
+                "uiSettings"
             )
-            .setOrigin(0.5)
+            .setScale(0.34)
             .setDepth(10003);
 
         this.updateChallengeHUD();
@@ -1526,105 +1598,153 @@ class ClaimRunScene extends Phaser.Scene {
 
     startProceduralRun() {
 
-        this.enemySpawnEvent =
-            this.time.addEvent({
-
-                delay:
-                    this.enemySpawnDelay,
-
-                loop:
-                    true,
-
-                callback:
-                    () =>
-                        this.spawnEnemyTick()
-
-            });
-
-
         /*
-            Start with some actual visual
-            activity rather than dead air.
-        */
+            BOOTSTRAP PHASE
 
+            Start with one slow target. The first wall gets the stage to itself:
+            NO second wall is scheduled until Pip actually resolves the opener.
+            This prevents the old wall avalanche and guarantees the first upgrade
+            can arrive before the real horde begins.
+        */
         this.spawnEnemyTick();
 
-
-        this.time.delayedCall(
-            160,
-
-            () => {
-
-                if (
-                    !this.challengeOver
-                ) {
-
-                    this.spawnEnemyTick();
-
-                }
-
-            }
+        this.restartEnemySpawner(
+            Math.max(
+                1500,
+                this.enemySpawnDelay * 1.85
+            )
         );
-
-
-        /*
-            Gates begin completely above
-            the visible screen.
-        */
-
-        this.time.delayedCall(
-            650,
-
-            () => {
-
-                if (
-                    !this.challengeOver
-                ) {
-
-                    this.spawnGatePair();
-
-                }
-
-            }
-        );
-
 
         this.gateSpawnEvent =
-            this.time.addEvent({
+            this.time.delayedCall(
+                120,
+                () => {
+                    this.gateSpawnEvent = null;
 
-                delay:
-                    this.gateSpawnDelay,
-
-                loop:
-                    true,
-
-                callback:
-                    () => {
-
-                        if (
-                            this.spawnedGatePairs <
-                            this.totalGatePairs
-                        ) {
-
-                            this.spawnGatePair();
-
-                        }
-
-
-                        if (
-                            this.spawnedGatePairs >=
-                            this.totalGatePairs &&
-                            this.gateSpawnEvent
-                        ) {
-
-                            this.gateSpawnEvent
-                                .remove(false);
-
-                        }
-
+                    if (this.challengeOver) {
+                        return;
                     }
 
+                    this.spawnGatePair();
+                }
+            );
+
+    }
+
+
+    restartEnemySpawner(delay = this.enemySpawnDelay) {
+
+        if (this.enemySpawnEvent) {
+            this.enemySpawnEvent.remove(false);
+            this.enemySpawnEvent = null;
+        }
+
+        if (
+            this.challengeOver ||
+            this.spawnedEnemies >= this.totalEnemies
+        ) {
+            return;
+        }
+
+        this.enemySpawnEvent =
+            this.time.addEvent({
+                delay,
+                loop: true,
+                callback: () => this.spawnEnemyTick()
             });
+
+    }
+
+
+    scheduleNextGate(forcedDelay = null) {
+
+        if (this.challengeOver) {
+            this.gateSpawnEvent = null;
+            return;
+        }
+
+        const enemyProgress =
+            this.totalEnemies > 0
+                ? this.spawnedEnemies / this.totalEnemies
+                : 1;
+
+        /*
+            If the planned walls are being exhausted while there is still a lot
+            of horde left, extend the wall plan by one row. This is bounded, so
+            it cannot become an endless wall generator.
+        */
+        if (
+            this.spawnedGatePairs >= this.totalGatePairs &&
+            enemyProgress < 0.94 &&
+            this.totalGatePairs < this.maxGatePairs
+        ) {
+            this.totalGatePairs++;
+        }
+
+        if (
+            this.spawnedGatePairs >= this.totalGatePairs
+        ) {
+            this.gateSpawnEvent = null;
+            return;
+        }
+
+        const gateProgress =
+            this.spawnedGatePairs /
+            Math.max(1, this.totalGatePairs);
+
+        const spread =
+            Math.min(
+                900,
+                240 + this.difficulty * 62
+            );
+
+        let delay =
+            forcedDelay !== null
+                ? forcedDelay
+                : Phaser.Math.Between(
+                    Math.max(950, this.gateSpawnDelay - spread),
+                    this.gateSpawnDelay + 520
+                );
+
+        /*
+            Pace walls against enemy progress. Walls wait if they are getting too
+            far ahead and hurry slightly if the horde has outrun the upgrade rows.
+        */
+        if (forcedDelay === null) {
+            if (gateProgress > enemyProgress + 0.15) {
+                delay = Math.round(delay * 1.30);
+            } else if (gateProgress + 0.12 < enemyProgress) {
+                delay = Math.round(delay * 0.74);
+            }
+        }
+
+        /*
+            Hard runs can still create occasional pressure bursts, but only after
+            the bootstrap and only once the horde is meaningfully underway.
+        */
+        if (
+            forcedDelay === null &&
+            this.difficulty >= 7 &&
+            enemyProgress > 0.35 &&
+            Math.random() < Math.min(0.26, 0.06 + this.difficulty * 0.017)
+        ) {
+            delay = Phaser.Math.Between(900, 1250);
+        }
+
+        this.gateSpawnEvent =
+            this.time.delayedCall(
+                Math.max(700, delay),
+                () => {
+                    this.gateSpawnEvent = null;
+
+                    if (this.challengeOver) {
+                        return;
+                    }
+
+                    this.spawnGatePair();
+                    this.scheduleNextGate();
+                }
+            );
 
     }
 
@@ -1633,163 +1753,96 @@ class ClaimRunScene extends Phaser.Scene {
 
         if (
             this.challengeOver ||
-            this.spawnedEnemies >=
-            this.totalEnemies
+            this.spawnedEnemies >= this.totalEnemies
         ) {
-
-            if (
-                this.enemySpawnEvent
-            ) {
-
-                this.enemySpawnEvent
-                    .remove(false);
-
+            if (this.enemySpawnEvent) {
+                this.enemySpawnEvent.remove(false);
             }
-
             return;
-
         }
-
 
         /*
-            Difficulty turns the trickle
-            into increasingly thick groups.
+            Before the first gate resolves: one enemy per tick, always.
+            This guarantees the initial ×1 bow is never buried by a batch.
         */
-
         let batch = 1;
 
+        if (!this.openingPhase) {
 
-        if (
-            this.difficulty >= 4 &&
-            Math.random()
-            <
-            Math.min(
-                0.82,
+            if (
+                this.difficulty >= 2 &&
+                Math.random() < Math.min(0.92, 0.30 + this.difficulty * 0.05)
+            ) {
+                batch++;
+            }
 
-                0.23 +
-                this.difficulty *
-                0.045
-            )
-        ) {
+            if (
+                this.difficulty >= 4 &&
+                Math.random() < Math.min(0.80, 0.13 + this.difficulty * 0.052)
+            ) {
+                batch++;
+            }
 
-            batch++;
+            if (
+                this.difficulty >= 6 &&
+                Math.random() < Math.min(0.62, 0.06 + this.difficulty * 0.043)
+            ) {
+                batch++;
+            }
 
-        }
+            if (
+                this.difficulty >= 9 &&
+                Math.random() < Math.min(0.40, (this.difficulty - 7) * 0.048)
+            ) {
+                batch++;
+            }
 
-
-        if (
-            this.difficulty >= 6 &&
-            Math.random()
-            <
-            Math.min(
-                0.55,
-
-                Math.max(
-                    0,
-
-                    (
-                        this.difficulty -
-                        2
-                    )
-                    *
-                    0.043
-                )
-            )
-        ) {
-
-            batch++;
-
-        }
-
-
-        if (
-            this.difficulty >= 9 &&
-            Math.random()
-            <
-            Math.min(
-                0.26,
-
-                Math.max(
-                    0,
-
-                    (
-                        this.difficulty -
-                        6
-                    )
-                    *
-                    0.025
-                )
-            )
-        ) {
-
-            batch++;
+            /*
+                Once half the wall rows have been consumed, the late-run wave
+                gets one extra chance to thicken. This keeps the challenge at
+                the back of the run instead of front-loading it.
+            */
+            if (
+                this.resolvedGatePairs >= Math.ceil(this.totalGatePairs * 0.5) &&
+                this.difficulty >= 5 &&
+                Math.random() < Math.min(0.48, 0.12 + this.difficulty * 0.025)
+            ) {
+                batch++;
+            }
 
         }
-
 
         batch =
             Math.min(
-
                 batch,
-
-                this.totalEnemies -
-                this.spawnedEnemies
-
+                this.totalEnemies - this.spawnedEnemies
             );
-
 
         const center =
             Phaser.Math.Between(
-                135,
-                GAME_WIDTH - 135
+                130,
+                GAME_WIDTH - 130
             );
 
+        const formationSpread =
+            Phaser.Math.Between(38, 66);
 
-        for (
-            let i = 0;
-            i < batch;
-            i++
-        ) {
-
+        for (let i = 0; i < batch; i++) {
             this.time.delayedCall(
-
-                i * 70,
-
+                i * Phaser.Math.Between(48, 88),
                 () => {
-
                     const spread =
-                        (
-                            i -
-                            (
-                                batch - 1
-                            )
-                            /
-                            2
-                        )
-                        *
-                        Phaser.Math.Between(
-                            40,
-                            64
-                        );
-
+                        (i - (batch - 1) / 2) * formationSpread;
 
                     this.spawnEnemy(
-
                         Phaser.Math.Clamp(
-                            center +
-                            spread,
-
-                            90,
-
-                            GAME_WIDTH - 90
+                            center + spread,
+                            86,
+                            GAME_WIDTH - 86
                         )
-
                     );
-
                 }
-
             );
-
         }
 
     }
@@ -1850,27 +1903,47 @@ class ClaimRunScene extends Phaser.Scene {
                 : this.enemyBaseHp + (elite ? 1 : 0);
 
 
+        const wallProgress =
+            this.resolvedGatePairs /
+            Math.max(1, this.totalGatePairs);
+
+        const pressureMultiplier =
+            this.openingPhase
+                ? 0.48
+                : this.resolvedGatePairs <= 1
+                    ? 0.70
+                    : Phaser.Math.Linear(
+                        0.78,
+                        1.0,
+                        Phaser.Math.Clamp(wallProgress * 1.35, 0, 1)
+                    );
+
+
         const speed =
             Math.min(
 
                 250,
 
-                this.enemyBaseSpeed +
-
-                Phaser.Math.Between(
-                    -7,
-                    24
-                )
-
-                +
-
-                progress
-                *
                 (
-                    22 +
-                    this.difficulty *
-                    1.5
+                    this.enemyBaseSpeed +
+
+                    Phaser.Math.Between(
+                        -7,
+                        22
+                    )
+
+                    +
+
+                    progress
+                    *
+                    (
+                        20 +
+                        this.difficulty *
+                        1.45
+                    )
                 )
+                *
+                pressureMultiplier
 
             );
 
@@ -2013,203 +2086,261 @@ class ClaimRunScene extends Phaser.Scene {
 
         if (
             this.challengeOver ||
-            this.spawnedGatePairs >=
-            this.totalGatePairs
+            this.spawnedGatePairs >= this.totalGatePairs
         ) {
             return;
         }
 
-
         this.spawnedGatePairs++;
-
         this.gatePairCounter++;
 
+        const pairId = `wall-${this.gatePairCounter}`;
+        const isOpeningGate = this.gatePairCounter === 1;
+        const effects = ["VOLLEY", "RATE", "SPEED"];
 
-        const pairId =
-            `wall-${
-                this.gatePairCounter
-            }`;
-
-
-        const effects = [
-            "VOLLEY",
-            "RATE",
-            "SPEED"
-        ];
-
-
+        /*
+            First row always offers VOLLEY. Starting at ×1 is the weakest point
+            of the run, so the opener should reliably offer raw crowd control.
+        */
         const effect =
-            effects[
-                Phaser.Math.Between(
-                    0,
-                    effects.length - 1
-                )
-            ];
+            isOpeningGate
+                ? "VOLLEY"
+                : effects[
+                    Phaser.Math.Between(0, effects.length - 1)
+                ];
 
-
-        const tier =
-            1 +
-            Math.floor(
-                (
-                    this.difficulty -
-                    1
-                )
-                /
-                4
-            );
-
+        const positiveCap =
+            Math.min(5, 1 + Math.floor(this.difficulty / 3));
 
         const positiveStart =
-            Phaser.Math.Between(
-                1,
-                Math.min(
-                    3,
-                    tier
-                )
-            );
+            isOpeningGate
+                ? Phaser.Math.Between(1, Math.max(2, Math.min(3, positiveCap)))
+                : Phaser.Math.Between(1, positiveCap);
 
+        const negativeMin =
+            isOpeningGate
+                ? 1
+                : 1 + Math.floor((this.difficulty - 1) / 5);
+
+        const negativeCap =
+            isOpeningGate
+                ? Math.min(2, 1 + Math.floor(this.difficulty / 5))
+                : Math.min(9, 2 + Math.floor(this.difficulty * 0.8));
 
         const negativeStart =
-            -Phaser.Math.Between(
-                1,
+            -Phaser.Math.Between(negativeMin, negativeCap);
 
-                Math.min(
-                    4,
+        const reversed = Math.random() < 0.5;
 
-                    tier +
-                    (
-                        this.difficulty >= 7
-                            ? 1
-                            : 0
-                    )
-                )
+        const arenaLeft = 72;
+        const arenaRight = GAME_WIDTH - 72;
+        const arenaWidth = arenaRight - arenaLeft;
+
+        let positiveWidth =
+            isOpeningGate
+                ? Phaser.Math.Between(176, 206)
+                : Phaser.Math.Between(118, 182);
+
+        /*
+            Good gates gradually become a little less generous, while bad gates
+            can become enormous. This is still bounded so a route always exists.
+        */
+        positiveWidth =
+            Phaser.Math.Clamp(
+                isOpeningGate
+                    ? positiveWidth
+                    : positiveWidth - Math.min(30, (this.difficulty - 1) * 3),
+                isOpeningGate ? 176 : 104,
+                isOpeningGate ? 206 : 182
             );
 
-
-        const reversed =
-            Math.random() < 0.5;
-
-
-        /*
-            These are intentionally much
-            narrower than the old 286px gates.
-
-            There is now:
-            - a centre firing lane
-            - room at the outside edges
-            - clear visibility of enemies
-              behind the panels
-        */
-
-        const leftX = 205;
-
-        const rightX = 515;
-
-
-        const positiveX =
-            reversed
-                ? rightX
-                : leftX;
-
-
-        const negativeX =
-            reversed
-                ? leftX
-                : rightX;
-
-
-        /*
-            Entire gate begins above screen.
-        */
-
-        const y = -62;
-
-
-        const pair = {
-
-            id:
-                pairId,
-
-            resolved:
-                false,
-
-            gates:
-                [],
-
-            effect
-
-        };
-
-
-        this.gatePairs.set(
-            pairId,
-            pair
-        );
-
-
-        pair.gates.push(
-
-            this.createGate(
-                positiveX,
-                y,
-                positiveStart,
-                effect,
-                pairId
-            )
-
-        );
-
-
-        pair.gates.push(
-
-            this.createGate(
-                negativeX,
-                y,
-                negativeStart,
-                effect,
-                pairId
-            )
-
-        );
-
+        let negativeWidth =
+            isOpeningGate
+                ? Phaser.Math.Between(112, 142)
+                : Phaser.Math.Between(150, 215) +
+                  Math.max(0, this.difficulty - 2) * 8;
 
         if (
-            this.wallWarningText
+            !isOpeningGate &&
+            this.difficulty >= 4 &&
+            Math.random() < Math.min(0.55, 0.16 + this.difficulty * 0.035)
         ) {
+            negativeWidth += Phaser.Math.Between(45, 95);
+        }
+
+        negativeWidth =
+            Phaser.Math.Clamp(
+                negativeWidth,
+                isOpeningGate ? 112 : 145,
+                isOpeningGate ? 142 : 300
+            );
+
+        const gap =
+            isOpeningGate
+                ? Phaser.Math.Between(88, 112)
+                : Phaser.Math.Between(44, 80);
+
+        if (
+            positiveWidth + negativeWidth + gap > arenaWidth
+        ) {
+            negativeWidth =
+                arenaWidth - positiveWidth - gap;
+        }
+
+        const leftIsNegative = reversed;
+
+        let positiveX;
+        let negativeX;
+
+        if (leftIsNegative) {
+            negativeX =
+                arenaLeft + negativeWidth / 2 +
+                Phaser.Math.Between(0, 18);
+
+            positiveX =
+                arenaRight - positiveWidth / 2 -
+                Phaser.Math.Between(0, 18);
+        } else {
+            positiveX =
+                arenaLeft + positiveWidth / 2 +
+                Phaser.Math.Between(0, 18);
+
+            negativeX =
+                arenaRight - negativeWidth / 2 -
+                Phaser.Math.Between(0, 18);
+        }
+
+        const stagger =
+            isOpeningGate
+                ? 0
+                : this.difficulty >= 3
+                    ? Phaser.Math.Between(-38, 38)
+                    : 0;
+
+        const y = -72;
+
+        const pair = {
+            id: pairId,
+            resolved: false,
+            gates: [],
+            effect
+        };
+
+        this.gatePairs.set(pairId, pair);
+
+        pair.gates.push(
+            this.createGate(
+                positiveX,
+                y + stagger,
+                positiveStart,
+                effect,
+                pairId,
+                {
+                    width: positiveWidth,
+                    height: isOpeningGate
+                        ? 92
+                        : Phaser.Math.Between(76, 94),
+                    speedMultiplier: isOpeningGate
+                        ? 2.0
+                        : (0.94 + Math.random() * 0.14),
+                    valueCap: isOpeningGate ? 5 : 15,
+                    driftAmplitude:
+                        isOpeningGate
+                            ? 0
+                            : this.difficulty >= 5
+                                ? Phaser.Math.Between(0, 24)
+                                : 0
+                }
+            )
+        );
+
+        pair.gates.push(
+            this.createGate(
+                negativeX,
+                y - stagger,
+                negativeStart,
+                effect,
+                pairId,
+                {
+                    width: negativeWidth,
+                    height: isOpeningGate
+                        ? 88
+                        : Phaser.Math.Between(82, 108),
+                    speedMultiplier: isOpeningGate
+                        ? 2.0
+                        : (0.98 + Math.random() * 0.18),
+                    valueCap: isOpeningGate ? 4 : 15,
+                    driftAmplitude:
+                        isOpeningGate
+                            ? 0
+                            : this.difficulty >= 4
+                                ? Phaser.Math.Between(0, Math.min(52, 12 + this.difficulty * 4))
+                                : 0
+                }
+            )
+        );
+
+        /*
+            High-tier rows occasionally contain a THIRD negative wall. It is a
+            smaller moving blocker, not a separate choice row: crossing any gate
+            resolves the whole row as before.
+        */
+        if (
+            !isOpeningGate &&
+            this.difficulty >= 7 &&
+            Math.random() < Math.min(0.45, 0.16 + (this.difficulty - 7) * 0.04)
+        ) {
+            const thirdWidth =
+                Phaser.Math.Between(88, 132);
+
+            const thirdX =
+                Phaser.Math.Clamp(
+                    GAME_WIDTH / 2 + Phaser.Math.Between(-70, 70),
+                    arenaLeft + thirdWidth / 2,
+                    arenaRight - thirdWidth / 2
+                );
+
+            pair.gates.push(
+                this.createGate(
+                    thirdX,
+                    y - Phaser.Math.Between(85, 145),
+                    -Phaser.Math.Between(
+                        Math.max(2, negativeMin),
+                        negativeCap
+                    ),
+                    effect,
+                    pairId,
+                    {
+                        width: thirdWidth,
+                        height: Phaser.Math.Between(70, 90),
+                        speedMultiplier: (1.08 + Math.random() * 0.16),
+                        driftAmplitude: Phaser.Math.Between(22, 58)
+                    }
+                )
+            );
+        }
+
+        if (this.wallWarningText) {
+            const danger =
+                Math.abs(negativeStart) >= 5 || negativeWidth >= 245;
 
             this.wallWarningText
                 .setText(
-                    `INBOUND GATES • ${effect}`
+                    danger
+                        ? `HEAVY ${effect} WALLS`
+                        : `INBOUND GATES • ${effect}`
                 )
                 .setAlpha(1);
 
-
-            this.tweens.killTweensOf(
-                this.wallWarningText
-            );
-
-
+            this.tweens.killTweensOf(this.wallWarningText);
             this.tweens.add({
-
-                targets:
-                    this.wallWarningText,
-
-                alpha:
-                    0.15,
-
-                duration:
-                    720,
-
-                yoyo:
-                    true,
-
-                repeat:
-                    1
-
+                targets: this.wallWarningText,
+                alpha: 0.15,
+                duration: 620,
+                yoyo: true,
+                repeat: 1
             });
-
         }
-
 
         this.updateChallengeHUD();
 
@@ -2221,230 +2352,152 @@ class ClaimRunScene extends Phaser.Scene {
         y,
         value,
         effect,
-        pairId
+        pairId,
+        options = {}
     ) {
 
-        const positive =
-            value > 0;
+        const positive = value > 0;
+        const fill = positive ? 0x37d879 : 0xed4f5d;
+        const edge = positive ? 0x77ffa5 : 0xff7f8a;
 
+        const width =
+            Phaser.Math.Clamp(
+                options.width || 182,
+                84,
+                310
+            );
 
-        const fill =
-            positive
-                ? 0x37d879
-                : 0xed4f5d;
-
-
-        const edge =
-            positive
-                ? 0x77ffa5
-                : 0xff7f8a;
-
-
-        /*
-            Narrow gate panel.
-
-            Enemies draw over it.
-            Bullets draw over it.
-        */
+        const height =
+            Phaser.Math.Clamp(
+                options.height || 90,
+                64,
+                116
+            );
 
         const gate =
             this.add.rectangle(
                 x,
                 y,
-                182,
-                90,
+                width,
+                height,
                 fill,
                 0.18
             )
-            .setStrokeStyle(
-                5,
-                edge,
-                0.96
-            )
+            .setStrokeStyle(5, edge, 0.96)
             .setDepth(620);
 
-
-        /*
-            Physics exists for overlap
-            detection only.
-
-            Visible movement is manual.
-        */
-
-        this.physics.add.existing(
-            gate
-        );
-
-
-        gate.body.setAllowGravity(
-            false
-        );
-
-
-        gate.body.moves =
-            false;
-
+        this.physics.add.existing(gate);
+        gate.body.setAllowGravity(false);
+        gate.body.moves = false;
 
         gate.__speed =
-            this.gateSpeed;
+            this.gateSpeed *
+            (options.speedMultiplier || 1);
 
+        gate.__pairId = pairId;
+        gate.__effect = effect;
+        gate.__value = value;
+        gate.__positive = positive;
+        gate.__resolved = false;
+        gate.__fill = fill;
+        gate.__edge = edge;
+        gate.__valueCap = Phaser.Math.Clamp(options.valueCap || 15, 1, 15);
+        gate.__id = `${pairId}-${positive ? "good" : "bad"}-${Math.random()}`;
 
-        gate.__pairId =
-            pairId;
-
-
-        gate.__effect =
-            effect;
-
-
-        gate.__value =
-            value;
-
-
-        gate.__positive =
-            positive;
-
-
-        gate.__resolved =
-            false;
-
-
-        gate.__fill =
-            fill;
-
-
-        gate.__edge =
-            edge;
-
-
-        gate.__id =
-            `${
-                pairId
-            }-${
-                positive
-                    ? "good"
-                    : "bad"
-            }`;
-
+        gate.__baseX = x;
+        gate.__driftAmplitude = options.driftAmplitude || 0;
+        gate.__driftRate = (0.0013 + Math.random() * 0.0010);
+        gate.__driftPhase = (Math.random() * Math.PI * 2);
 
         gate.__effectText =
             this.add.text(
                 x,
-                y - 24,
-
+                y - height * 0.26,
                 effect,
-
                 {
-                    fontFamily:
-                        FONT_TECH,
-
-                    fontSize:
-                        "12px",
-
-                    fontStyle:
-                        "bold",
-
-                    color:
-                        "#ffffff"
+                    fontFamily: FONT_TECH,
+                    fontSize: width < 120 ? "10px" : "12px",
+                    fontStyle: "bold",
+                    color: "#ffffff"
                 }
             )
             .setOrigin(0.5)
             .setDepth(760)
             .setAlpha(0.80);
 
-
         gate.__valueText =
             this.add.text(
                 x,
-                y + 10,
-
-                this.formatGateValue(
-                    value
-                ),
-
+                y + 8,
+                this.formatGateValue(value),
                 {
-                    fontFamily:
-                        FONT_DISPLAY,
-
-                    fontSize:
-                        "36px",
-
-                    color:
-                        positive
-                            ? "#caffd8"
-                            : "#ffd1d5",
-
-                    stroke:
-                        "#0a0f18",
-
-                    strokeThickness:
-                        7
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: width < 120 ? "30px" : "36px",
+                    color: positive ? "#caffd8" : "#ffd1d5",
+                    stroke: "#0a0f18",
+                    strokeThickness: 7
                 }
             )
             .setOrigin(0.5)
             .setDepth(761);
 
+        gate.__barOffsets = [
+            -width / 2 + 16,
+            width / 2 - 16
+        ];
 
         gate.__bars =
-            [-68, 68]
-                .map(
-                    offset =>
-                        this.add.rectangle(
-                            x + offset,
-                            y,
-                            5,
-                            70,
+            gate.__barOffsets.map(
+                offset =>
+                    this.add.rectangle(
+                        x + offset,
+                        y,
+                        5,
+                        height - 18,
+                        positive ? 0xb8ffcb : 0xffb2b9,
+                        0.30
+                    )
+                    .setDepth(621)
+            );
 
-                            positive
-                                ? 0xb8ffcb
-                                : 0xffb2b9,
+        const chevronCount =
+            Phaser.Math.Clamp(
+                Math.floor(width / 58),
+                1,
+                5
+            );
 
-                            0.30
+        gate.__chevronOffsets =
+            Array.from(
+                { length: chevronCount },
+                (_, index) =>
+                    chevronCount === 1
+                        ? 0
+                        : Phaser.Math.Linear(
+                            -width / 2 + 32,
+                            width / 2 - 32,
+                            index / (chevronCount - 1)
                         )
-                        .setDepth(621)
-                );
-
+            );
 
         gate.__chevrons =
-            [-38, 0, 38]
-                .map(
-                    offset =>
-                        this.add.triangle(
-                            x + offset,
-                            y + 35,
+            gate.__chevronOffsets.map(
+                offset =>
+                    this.add.triangle(
+                        x + offset,
+                        y + height / 2 - 11,
+                        -7, -4,
+                        7, -4,
+                        0, 6,
+                        positive ? 0xc8ffd7 : 0xffc4ca,
+                        0.40
+                    )
+                    .setDepth(622)
+            );
 
-                            -7,
-                            -4,
-
-                            7,
-                            -4,
-
-                            0,
-                            6,
-
-                            positive
-                                ? 0xc8ffd7
-                                : 0xffc4ca,
-
-                            0.40
-                        )
-                        .setDepth(622)
-                );
-
-
-        this.gates.add(
-            gate
-        );
-
-
-        gate.body
-            .updateFromGameObject();
-
-
-        this.refreshGateVisual(
-            gate
-        );
-
+        this.gates.add(gate);
+        gate.body.updateFromGameObject();
+        this.refreshGateVisual(gate);
 
         return gate;
 
@@ -2539,67 +2592,33 @@ class ClaimRunScene extends Phaser.Scene {
             return;
         }
 
-
-        gate.__effectText
-            .setPosition(
-                gate.x,
-                gate.y - 24
-            );
-
-
-        gate.__valueText
-            .setPosition(
-                gate.x,
-                gate.y + 10
-            );
-
-
-        gate.__bars.forEach(
-            (
-                bar,
-                index
-            ) => {
-
-                if (bar.active) {
-
-                    bar.setPosition(
-
-                        gate.x +
-                        [-68, 68][index],
-
-                        gate.y
-
-                    );
-
-                }
-
-            }
+        gate.__effectText.setPosition(
+            gate.x,
+            gate.y - gate.height * 0.26
         );
 
-
-        gate.__chevrons.forEach(
-            (
-                chevron,
-                index
-            ) => {
-
-                if (
-                    chevron.active
-                ) {
-
-                    chevron.setPosition(
-
-                        gate.x +
-                        [-38, 0, 38][index],
-
-                        gate.y + 35
-
-                    );
-
-                }
-
-            }
+        gate.__valueText.setPosition(
+            gate.x,
+            gate.y + 8
         );
+
+        gate.__bars.forEach((bar, index) => {
+            if (bar.active) {
+                bar.setPosition(
+                    gate.x + gate.__barOffsets[index],
+                    gate.y
+                );
+            }
+        });
+
+        gate.__chevrons.forEach((chevron, index) => {
+            if (chevron.active) {
+                chevron.setPosition(
+                    gate.x + gate.__chevronOffsets[index],
+                    gate.y + gate.height / 2 - 11
+                );
+            }
+        });
 
     }
 
@@ -2701,6 +2720,36 @@ class ClaimRunScene extends Phaser.Scene {
         }
 
 
+        /*
+            Crossing the first row starts the actual battle. From this point the
+            procedural batch logic and the intended difficulty cadence take over.
+        */
+        if (this.openingPhase) {
+            this.openingPhase = false;
+
+            this.restartEnemySpawner(
+                Math.max(
+                    430,
+                    this.enemySpawnDelay * 1.08
+                )
+            );
+
+            this.time.delayedCall(
+                360,
+                () => {
+                    if (!this.challengeOver) {
+                        this.spawnEnemyTick();
+                    }
+                }
+            );
+
+            // Normal walls begin only after the bootstrap wall has resolved.
+            this.scheduleNextGate(
+                Phaser.Math.Between(1200, 1650)
+            );
+        }
+
+
         for (
             const gate
             of pair.gates
@@ -2784,8 +2833,8 @@ class ClaimRunScene extends Phaser.Scene {
         gate.__value =
             Phaser.Math.Clamp(
                 gate.__value,
-                -15,
-                15
+                -gate.__valueCap,
+                gate.__valueCap
             );
 
 
@@ -3231,11 +3280,21 @@ class ClaimRunScene extends Phaser.Scene {
         enemy.__hp--;
 
         if (enemy.__bossHealth?.active) {
-            enemy.__bossHealth.setScaleX(
-                Math.max(
+            const bossHealthRatio =
+                Phaser.Math.Clamp(
+                    enemy.__hp / enemy.__maxHp,
                     0,
-                    enemy.__hp / enemy.__maxHp
-                )
+                    1
+                );
+
+            /*
+                Phaser Rectangle has setScale(x, y), not setScaleX().
+                Origin is already on the left edge, so horizontal scaling makes
+                the bar drain cleanly toward the boss.
+            */
+            enemy.__bossHealth.setScale(
+                bossHealthRatio,
+                1
             );
         }
 
@@ -3997,7 +4056,7 @@ class ClaimRunScene extends Phaser.Scene {
             const rewardPlate =
                 this.add.image(
                     GAME_WIDTH / 2 -
-                    36,
+                    84,
 
                     592,
 
@@ -4017,20 +4076,67 @@ class ClaimRunScene extends Phaser.Scene {
 
 
             this.add.text(
-                GAME_WIDTH / 2 + 8,
+                GAME_WIDTH / 2 - 40,
                 592,
 
-                "+1",
+                "+1 VALOR",
 
                 {
                     fontFamily:
                         FONT_DISPLAY,
 
                     fontSize:
-                        "34px",
+                        "28px",
 
                     color:
                         "#87e8ff"
+                }
+            )
+            .setOrigin(
+                0,
+                0.5
+            )
+            .setDepth(20002);
+
+
+            const deedPlate =
+                this.add.image(
+                    GAME_WIDTH / 2 +
+                    110,
+
+                    592,
+
+                    "uiTinyRoundBlue"
+                )
+                .setScale(0.82)
+                .setDepth(20001);
+
+
+            this.add.image(
+                deedPlate.x,
+                deedPlate.y,
+                "uiBuild"
+            )
+            .setScale(0.48)
+            .setDepth(20002)
+            .setTint(0xeaffd7);
+
+
+            this.add.text(
+                GAME_WIDTH / 2 + 152,
+                592,
+
+                "BUILD SLOT",
+
+                {
+                    fontFamily:
+                        FONT_DISPLAY,
+
+                    fontSize:
+                        "24px",
+
+                    color:
+                        "#d8ffc0"
                 }
             )
             .setOrigin(
@@ -4409,6 +4515,20 @@ class ClaimRunScene extends Phaser.Scene {
                 gate.__speed *
                 dt;
 
+            if (gate.__driftAmplitude > 0) {
+                gate.x =
+                    Phaser.Math.Clamp(
+                        gate.__baseX +
+                        Math.sin(
+                            time * gate.__driftRate +
+                            gate.__driftPhase
+                        ) *
+                        gate.__driftAmplitude,
+                        68 + gate.width / 2,
+                        GAME_WIDTH - 68 - gate.width / 2
+                    );
+            }
+
 
             gate.body
                 .updateFromGameObject();
@@ -4514,20 +4634,15 @@ class ClaimRunScene extends Phaser.Scene {
             0;
 
 
-        const wallsFinished =
-
-            this.spawnedGatePairs >=
-            this.totalGatePairs
-
-            &&
-
-            this.resolvedGatePairs >=
-            this.totalGatePairs;
-
-
+        /*
+            Claimrun is won by defeating the horde, not by exhausting every
+            remaining upgrade gate. Gates are tactical opportunities. Once
+            every planned enemy has spawned and no enemy remains alive, the
+            run ends immediately even if a wall is still travelling downward
+            or more wall rows were scheduled.
+        */
         if (
             hordeFinished &&
-            wallsFinished &&
             this.integrity > 0
         ) {
 
