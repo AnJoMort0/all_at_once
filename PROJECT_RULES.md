@@ -30,7 +30,9 @@ Matching art direction is explicitly NOT a requirement.
 - Portrait-first 720×1280 viewport unless a feature gives a reason to change it.
 - No build step unless a later feature truly benefits from one.
 - Desktop and mobile input should both remain usable where practical.
-- Current game state may remain in-memory until persistence is explicitly useful.
+- Persistent progression is now useful and active: banked currencies and claimed Ghostlots should remain compatible with the existing browser localStorage save unless a later feature intentionally migrates it.
 
 ## Important context note
 These files are the project's portable memory. ChatGPT account Memory is not relied upon. In a new conversation, upload the project (or at least these project docs plus the asset manifest) so the same rules/canon can be re-read.
+
+Portable manifest snapshot: `ASSET_MANIFEST.json` is also included beside the project docs when the code-only package is shared.

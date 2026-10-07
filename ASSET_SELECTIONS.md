@@ -10,7 +10,20 @@ Assets currently used by gameplay:
 | Pip idle | `assets/images/spritesheets/characters/tiny_swords/Yellow Units/Pawn/Pawn_Idle.png` — 8 frames at 192×192 |
 | Pip run | `assets/images/spritesheets/characters/tiny_swords/Yellow Units/Pawn/Pawn_Run.png` — 6 frames at 192×192 |
 | Glimmer | `assets/images/environment/resources/tiny_swords/Gold/Gold Resource/Gold_Resource.png` |
+| Large field tree variants | `assets/images/environment/resources/tiny_swords/Wood/Trees/Tree1.png` — treated as 6× 256px frames |
+| Cute Fantasy oak | `assets/images/environment/decorations/cute_fantasy/Oak_Tree.png` |
+| Cute Fantasy oak clump | `assets/images/environment/decorations/cute_fantasy/Oak_Tree_Small.png` |
+| Bush variants | `assets/images/environment/decorations/tiny_swords/Bushes/Bushe1.png` — treated as 8× 128px frames |
+| Field rocks | `assets/images/environment/decorations/tiny_swords/Rocks/Rock1.png`, `Rock2.png` |
+| Random fence prop | `assets/images/environment/decorations/cute_fantasy/Fences.png` |
+| Claimrun skeleton | `assets/images/spritesheets/enemies/enemy_animations/enemies-skeleton1_movement.png` — 10× 32px frames |
+| Claimrun projectile | `assets/images/projectiles/tiny_rpg_soldier_orc/Arrow01(32x32).png` |
 | Crank click SFX | `assets/audio/sfx/other/finger_click.wav` |
 | Glimmer collection SFX | `assets/audio/sfx/items/gem_collect.wav` |
+| Claimrun shot SFX | `assets/audio/sfx/weapons/shot_muffled.wav` |
+| Enemy hit SFX | `assets/audio/sfx/retro/hurt.wav` |
+| Positive gate SFX | `assets/audio/sfx/retro/power_up.wav` |
+| Negative gate SFX | `assets/audio/sfx/retro/power_down.wav` |
+| Claim/teleport confirmation | `assets/audio/sfx/ui/synth_confirmation.wav` |
 
-Ground, locked Ghostlot outlines, target marker, shadows, labels, and HUD are currently drawn procedurally in Phaser rather than sourced from images.
+Ground texture, Ghostlot outlines/status marks, Claimrun arena, fire gates, particles, prompts, target marker, shadows, labels, and HUD are drawn procedurally in Phaser.
