@@ -1135,6 +1135,56 @@ const ACHIEVEMENT_DEFS = [
     }
 ];
 
+const TECH_DEFS = [
+    {
+        key: "riftTempo",
+        title: "Rift Tempo",
+        max: 5,
+        description: "Pip attacks 8% faster per level during Riftfall.",
+        sealCosts: [2, 4, 7, 11, 16],
+        glassCosts: [60, 120, 220, 360, 560]
+    },
+    {
+        key: "longstep",
+        title: "Longstep",
+        max: 5,
+        description: "Pip movement increases 4% per level everywhere.",
+        sealCosts: [2, 5, 9, 14, 20],
+        glassCosts: [70, 150, 260, 420, 650]
+    },
+    {
+        key: "ironPulse",
+        title: "Iron Pulse",
+        max: 3,
+        description: "+1 maximum Riftfall health per level.",
+        sealCosts: [4, 8, 14],
+        glassCosts: [140, 300, 520]
+    },
+    {
+        key: "gravemagnet",
+        title: "Gravemagnet",
+        max: 4,
+        description: "Riftglass pickup radius increases by 12 per level.",
+        sealCosts: [3, 6, 10, 15],
+        glassCosts: [90, 180, 320, 500]
+    }
+];
+
+
+function techUpgradeCost(definition, level) {
+
+    if (!definition || level >= definition.max) {
+        return null;
+    }
+
+    return {
+        dawnseals: definition.sealCosts[level] ?? Infinity,
+        riftglass: definition.glassCosts[level] ?? Infinity
+    };
+
+}
+
+
 
 
 class GameScene extends Phaser.Scene {
@@ -2265,6 +2315,15 @@ class GameScene extends Phaser.Scene {
             unlocked
         } = lot;
 
+        const buildingKey =
+            unlocked
+                ? this.saveData.buildings?.[id] || null
+                : null;
+
+        const builtDefinition =
+            buildingKey
+                ? BUILDING_DEFS[buildingKey] || null
+                : null;
 
         const g =
             this.add.graphics()
@@ -2273,79 +2332,80 @@ class GameScene extends Phaser.Scene {
         const half =
             size / 2;
 
+        lot.buildingSprite = null;
+        lot.buildBadge = null;
+        lot.buildIcon = null;
+        lot.label = null;
 
-        g.fillStyle(
-            unlocked
-                ? 0x9bd57b
-                : active
-                    ? 0x7e681e
-                    : 0x18222a,
+        /*
+            Once a building exists, the old Ghostlot square is gone.
+            The lot has graduated into the settlement and the building itself
+            becomes the landmark, matching the Crankhouse treatment.
+        */
+        if (!builtDefinition) {
 
-            unlocked
-                ? 0.10
-                : active
-                    ? 0.13
-                    : 0.08
-        );
+            g.fillStyle(
+                unlocked
+                    ? 0x9bd57b
+                    : active
+                        ? 0x7e681e
+                        : 0x18222a,
 
+                unlocked
+                    ? 0.10
+                    : active
+                        ? 0.13
+                        : 0.08
+            );
 
-        g.fillRoundedRect(
-            x - half,
-            y - half,
-            size,
-            size,
-            18
-        );
+            g.fillRoundedRect(
+                x - half,
+                y - half,
+                size,
+                size,
+                18
+            );
 
+            g.lineStyle(
+                unlocked
+                    ? 5
+                    : active
+                        ? 6
+                        : 4,
 
-        g.lineStyle(
-            unlocked
-                ? 5
-                : active
-                    ? 6
-                    : 4,
+                unlocked
+                    ? 0xbff59b
+                    : active
+                        ? 0xffdf68
+                        : 0xe9e2bd,
 
-            unlocked
-                ? 0xbff59b
-                : active
-                    ? 0xffdf68
-                    : 0xe9e2bd,
+                unlocked
+                    ? 0.55
+                    : active
+                        ? 0.70
+                        : 0.26
+            );
 
-            unlocked
-                ? 0.55
-                : active
-                    ? 0.70
-                    : 0.26
-        );
-
-
-        g.strokeRoundedRect(
-            x - half,
-            y - half,
-            size,
-            size,
-            18
-        );
-
+            g.strokeRoundedRect(
+                x - half,
+                y - half,
+                size,
+                size,
+                18
+            );
+        }
 
         if (unlocked) {
 
-            const buildingKey =
-                this.saveData.buildings?.[id] ||
-                null;
-
-            if (buildingKey && BUILDING_DEFS[buildingKey]) {
-
-                const definition =
-                    BUILDING_DEFS[buildingKey];
+            if (builtDefinition) {
 
                 const building =
                     this.add.image(
                         x,
                         y + 6,
-                        definition.texture
+                        builtDefinition.texture
                     )
-                    .setScale(definition.scale)
+                    .setScale(builtDefinition.scale)
                     .setDepth(y + 4)
                     .setInteractive({
                         useHandCursor: true
@@ -2356,21 +2416,8 @@ class GameScene extends Phaser.Scene {
                 building.__blocksWorldInput = true;
                 lot.buildingSprite = building;
 
-                this.add.image(
-                    x,
-                    y - half + 22,
-                    "riftGlassIcon"
-                )
-                .setScale(0.34)
-                .setDepth(y + 6)
-                .setAlpha(0.78);
-
             } else {
 
-                /*
-                    Empty claimed lot = build-ready.
-                    The construction state is entirely asset-backed.
-                */
                 const claimedBack =
                     this.add.image(
                         x,
@@ -2398,6 +2445,9 @@ class GameScene extends Phaser.Scene {
                     .setDepth(-94)
                     .setTint(0xeaffd7);
 
+                lot.buildBadge = claimedBack;
+                lot.buildIcon = claimedIcon;
+
                 this.tweens.add({
                     targets: claimedBack,
                     scaleX: 1.02,
@@ -2416,19 +2466,9 @@ class GameScene extends Phaser.Scene {
                     repeat: -1,
                     ease: "Sine.InOut"
                 });
-
-                lot.buildBadge = claimedBack;
-
             }
 
         } else {
-
-            /*
-                Locked Ghostlots also use imported art.
-                The Raven fantasy key is intentionally mixed
-                with the Tiny Swords button, matching the game's
-                asset-collision aesthetic.
-            */
 
             const lockedBack =
                 this.add.image(
@@ -2476,79 +2516,326 @@ class GameScene extends Phaser.Scene {
                     repeatDelay: 520,
                     ease: "Sine.InOut"
                 });
-
             }
-
         }
 
+        if (builtDefinition) {
 
-        const builtDefinition =
-            unlocked
-                ? BUILDING_DEFS[
-                    this.saveData.buildings?.[id]
-                  ]
-                : null;
+            const labelY =
+                y - Math.max(
+                    half + 18,
+                    112
+                );
 
-        const suffix =
-            builtDefinition
-                ? ` • ${builtDefinition.short}`
-                : unlocked
+            lot.label =
+                this.add.text(
+                    x,
+                    labelY,
+                    builtDefinition.name.toUpperCase(),
+                    {
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: "21px",
+                        color: "#fff1aa",
+                        stroke: "#1f2823",
+                        strokeThickness: 6,
+                        align: "center"
+                    }
+                )
+                .setOrigin(0.5, 1)
+                .setDepth(y + 90);
+
+            this.syncBuildingAttentionBadge(lot);
+
+        } else {
+
+            const suffix =
+                unlocked
                     ? " • BUILD READY"
                     : active
                         ? " • CALLING"
                         : "";
 
-
-        this.add.text(
-            x,
-            y + half + 14,
-
-            `${
-                id.toUpperCase()
-            }${suffix}`,
-
-            {
-                fontFamily:
-                    FONT_TECH,
-
-                fontSize:
-                    "14px",
-
-                fontStyle:
-                    "bold",
-
-                color:
-                    unlocked
-                        ? "#d8ffc0"
-                        : active
-                            ? "#fff0a2"
-                            : "#e8e1c3",
-
-                stroke:
-                    "#203021",
-
-                strokeThickness:
-                    4
-            }
-        )
-        .setOrigin(
-            0.5,
-            0
-        )
-        .setDepth(
-            builtDefinition
-                ? y + 90
-                : -90
-        )
-        .setAlpha(
-            unlocked ||
-            active
-                ? 0.95
-                : 0.58
-        );
-
+            lot.label =
+                this.add.text(
+                    x,
+                    y + half + 14,
+                    `${id.toUpperCase()}${suffix}`,
+                    {
+                        fontFamily: FONT_TECH,
+                        fontSize: "14px",
+                        fontStyle: "bold",
+                        color:
+                            unlocked
+                                ? "#d8ffc0"
+                                : active
+                                    ? "#fff0a2"
+                                    : "#e8e1c3",
+                        stroke: "#203021",
+                        strokeThickness: 4
+                    }
+                )
+                .setOrigin(0.5, 0)
+                .setDepth(-90)
+                .setAlpha(
+                    unlocked || active
+                        ? 0.95
+                        : 0.58
+                );
+        }
 
         return g;
+
+    }
+
+
+    clearGhostlotVisual(lot) {
+
+        if (!lot) {
+            return;
+        }
+
+        for (const key of [
+            "graphics",
+            "buildBadge",
+            "buildIcon",
+            "buildingSprite",
+            "label",
+            "attentionBack",
+            "attentionIcon"
+        ]) {
+            const object = lot[key];
+            if (object) {
+                this.tweens.killTweensOf(object);
+                if (object.active !== false) {
+                    object.destroy();
+                }
+                lot[key] = null;
+            }
+        }
+
+    }
+
+
+    getBuildingAttentionState(buildingKey) {
+
+        if (buildingKey === "laurelArchive") {
+            const claimable =
+                ACHIEVEMENT_DEFS.find(definition =>
+                    !this.saveData.claimedAchievements.includes(definition.id) &&
+                    Boolean(definition.test(this.saveData))
+                );
+
+            if (claimable) {
+                return {
+                    texture:
+                        claimable.reward.dawnseals
+                            ? "dawnSealIcon"
+                            : claimable.reward.riftglass
+                                ? "riftGlassIcon"
+                                : "uiValor"
+                };
+            }
+        }
+
+        if (buildingKey === "bountyBell") {
+            const { state, definition } =
+                ensureRotatingBounty(this.saveData);
+
+            if (
+                !state.claimed &&
+                Number(state.progress || 0) >= definition.target
+            ) {
+                return {
+                    texture:
+                        definition.reward.dawnseals
+                            ? "dawnSealIcon"
+                            : "riftGlassIcon"
+                };
+            }
+        }
+
+        if (buildingKey === "brassrootInstitute") {
+            const affordableResearch =
+                TECH_DEFS.some(definition => {
+                    const level = this.saveData.tech?.[definition.key] || 0;
+                    const cost = techUpgradeCost(definition, level);
+                    return Boolean(
+                        cost &&
+                        this.saveData.dawnseals >= cost.dawnseals &&
+                        this.saveData.riftglass >= cost.riftglass
+                    );
+                });
+
+            if (affordableResearch) {
+                return { texture: "dawnSealIcon" };
+            }
+        }
+
+        return null;
+
+    }
+
+
+    syncBuildingAttentionBadge(lot) {
+
+        if (!lot) {
+            return;
+        }
+
+        const buildingKey =
+            this.saveData.buildings?.[lot.id] || null;
+
+        const state =
+            buildingKey
+                ? this.getBuildingAttentionState(buildingKey)
+                : null;
+
+        if (!state) {
+            for (const key of ["attentionBack", "attentionIcon"]) {
+                const object = lot[key];
+                if (object) {
+                    this.tweens.killTweensOf(object);
+                    object.destroy();
+                    lot[key] = null;
+                }
+            }
+            return;
+        }
+
+        const half = lot.size / 2;
+        const badgeX = lot.x + Math.min(72, half * 0.72);
+        const badgeY = lot.y - Math.max(half + 42, 136);
+
+        if (!lot.attentionBack) {
+            lot.attentionBack =
+                this.add.image(
+                    badgeX,
+                    badgeY,
+                    "uiTinyRoundBlue"
+                )
+                .setScale(0.54)
+                .setDepth(lot.y + 104);
+
+            lot.attentionIcon =
+                this.add.image(
+                    badgeX,
+                    badgeY,
+                    state.texture
+                )
+                .setScale(0.28)
+                .setDepth(lot.y + 105);
+
+            this.tweens.add({
+                targets: [
+                    lot.attentionBack,
+                    lot.attentionIcon
+                ],
+                y: badgeY - 7,
+                duration: 620,
+                yoyo: true,
+                repeat: -1,
+                ease: "Sine.InOut"
+            });
+        } else {
+            lot.attentionBack.setPosition(badgeX, badgeY);
+            lot.attentionIcon
+                .setPosition(badgeX, badgeY)
+                .setTexture(state.texture);
+        }
+
+    }
+
+
+    refreshBuildingAttentionBadges() {
+
+        if (!this.ghostlots) {
+            return;
+        }
+
+        for (const lot of this.ghostlots) {
+            if (this.saveData.buildings?.[lot.id]) {
+                this.syncBuildingAttentionBadge(lot);
+            }
+        }
+
+    }
+
+
+    animateConstructedBuilding(lot, definition) {
+
+        const building = lot?.buildingSprite;
+
+        if (!building || !definition) {
+            return;
+        }
+
+        const finalY = lot.y + 6;
+
+        building
+            .setScale(0.08)
+            .setAlpha(0.15)
+            .setY(finalY + 54);
+
+        if (lot.label) {
+            lot.label
+                .setAlpha(0)
+                .setY(lot.label.y + 14);
+        }
+
+        for (let i = 0; i < 7; i++) {
+            const angle =
+                (Math.PI * 2 * i) / 7;
+
+            const shard =
+                this.add.image(
+                    lot.x,
+                    lot.y + 12,
+                    "riftGlassIcon"
+                )
+                .setScale(0.20 + (i % 3) * 0.03)
+                .setDepth(lot.y + 95)
+                .setAlpha(0.9);
+
+            this.tweens.add({
+                targets: shard,
+                x: lot.x + Math.cos(angle) * (58 + (i % 2) * 22),
+                y: lot.y + Math.sin(angle) * 38 - 24,
+                alpha: 0,
+                scaleX: 0.08,
+                scaleY: 0.08,
+                duration: 480 + i * 34,
+                ease: "Quad.Out",
+                onComplete: () => shard.destroy()
+            });
+        }
+
+        this.tweens.add({
+            targets: building,
+            y: finalY,
+            scaleX: definition.scale,
+            scaleY: definition.scale,
+            alpha: 1,
+            duration: 680,
+            ease: "Back.Out"
+        });
+
+        if (lot.label) {
+            this.tweens.add({
+                targets: lot.label,
+                y: lot.label.y - 14,
+                alpha: 1,
+                delay: 220,
+                duration: 360,
+                ease: "Quad.Out"
+            });
+        }
+
+        this.cameras.main.flash(
+            150,
+            196,
+            226,
+            255
+        );
 
     }
 
@@ -4898,6 +5185,14 @@ class GameScene extends Phaser.Scene {
             ) => {
 
                 /*
+                    Scroll an open settlement menu instead of zooming the meadow.
+                */
+                if (this.hubPanel && this.hubScroll) {
+                    this.scrollHubBy(deltaY * 0.72);
+                    return;
+                }
+
+                /*
                     UI interaction shouldn't accidentally
                     zoom the world behind it.
                 */
@@ -4947,26 +5242,8 @@ class GameScene extends Phaser.Scene {
             ) => {
 
                 if (this.hubPanel) {
-
-                    const zone =
-                        this.hubActionZones
-                            .slice()
-                            .reverse()
-                            .find(action =>
-                                Math.abs(pointer.x - action.x) <=
-                                    action.width / 2 &&
-                                Math.abs(pointer.y - action.y) <=
-                                    action.height / 2
-                            );
-
-                    if (zone) {
-                        zone.callback();
-                    } else {
-                        this.closeHubPanel();
-                    }
-
+                    this.beginHubPointer(pointer);
                     return;
-
                 }
 
                 if (this.handleNavigationIndicatorTap(pointer)) {
@@ -5160,7 +5437,11 @@ class GameScene extends Phaser.Scene {
 
         this.input.on(
             "pointermove",
-            () => {
+            pointer => {
+
+                if (this.hubPanel && this.updateHubPointer(pointer)) {
+                    return;
+                }
 
                 this.updatePinchZoom();
 
@@ -5170,7 +5451,11 @@ class GameScene extends Phaser.Scene {
 
         this.input.on(
             "pointerup",
-            () => {
+            pointer => {
+
+                if (this.finishHubPointer(pointer)) {
+                    return;
+                }
 
                 const pointers =
                     this.getActiveTouchPointers();
@@ -5194,7 +5479,11 @@ class GameScene extends Phaser.Scene {
 
         this.input.on(
             "pointerupoutside",
-            () => {
+            pointer => {
+
+                if (this.finishHubPointer(pointer, true)) {
+                    return;
+                }
 
                 this.pinchStartDistance =
                     null;
@@ -5856,6 +6145,14 @@ class GameScene extends Phaser.Scene {
 
     closeHubPanel() {
 
+        this.hubPointerState = null;
+
+        if (this.hubScroll?.mask?.destroy) {
+            this.hubScroll.mask.destroy();
+        }
+
+        this.hubScroll = null;
+
         if (this.hubPanel) {
             this.hubPanel.destroy(true);
             this.hubPanel = null;
@@ -5866,7 +6163,192 @@ class GameScene extends Phaser.Scene {
     }
 
 
-    openHubPanel(title, subtitle, rows) {
+    getHubActionAt(pointer) {
+
+        if (!this.hubActionZones?.length) {
+            return null;
+        }
+
+        return this.hubActionZones
+            .slice()
+            .reverse()
+            .find(action => {
+
+                if (action.enabled === false) {
+                    return false;
+                }
+
+                if (
+                    action.scrollable &&
+                    this.hubScroll &&
+                    (
+                        pointer.y < this.hubScroll.viewportTop ||
+                        pointer.y > this.hubScroll.viewportBottom
+                    )
+                ) {
+                    return false;
+                }
+
+                return (
+                    Math.abs(pointer.x - action.x) <= action.width / 2 &&
+                    Math.abs(pointer.y - action.y) <= action.height / 2
+                );
+            }) || null;
+
+    }
+
+
+    beginHubPointer(pointer) {
+
+        if (!this.hubPanel || !this.hubScroll) {
+            return;
+        }
+
+        const bounds = this.hubScroll.panelBounds;
+
+        if (
+            pointer.x < bounds.left ||
+            pointer.x > bounds.right ||
+            pointer.y < bounds.top ||
+            pointer.y > bounds.bottom
+        ) {
+            this.closeHubPanel();
+            return;
+        }
+
+        this.hubPointerState = {
+            id: pointer.id,
+            startX: pointer.x,
+            startY: pointer.y,
+            lastY: pointer.y,
+            dragged: false,
+            pendingAction: this.getHubActionAt(pointer),
+            canScroll:
+                this.hubScroll.maxScroll > 0 &&
+                pointer.y >= this.hubScroll.viewportTop &&
+                pointer.y <= this.hubScroll.viewportBottom
+        };
+
+    }
+
+
+    updateHubPointer(pointer) {
+
+        const state = this.hubPointerState;
+
+        if (!state || state.id !== pointer.id) {
+            return false;
+        }
+
+        const dy = pointer.y - state.lastY;
+        const total = Math.hypot(
+            pointer.x - state.startX,
+            pointer.y - state.startY
+        );
+
+        if (state.canScroll && total > 8) {
+            state.dragged = true;
+        }
+
+        if (state.dragged) {
+            this.scrollHubBy(-dy);
+        }
+
+        state.lastY = pointer.y;
+        return true;
+
+    }
+
+
+    finishHubPointer(pointer, cancelled = false) {
+
+        const state = this.hubPointerState;
+
+        if (!state || state.id !== pointer.id) {
+            return false;
+        }
+
+        this.hubPointerState = null;
+
+        if (
+            !cancelled &&
+            !state.dragged &&
+            state.pendingAction
+        ) {
+            const currentAction =
+                this.getHubActionAt(pointer);
+
+            if (currentAction === state.pendingAction) {
+                state.pendingAction.callback?.();
+            }
+        }
+
+        return true;
+
+    }
+
+
+    scrollHubBy(delta) {
+
+        if (!this.hubScroll || this.hubScroll.maxScroll <= 0) {
+            return;
+        }
+
+        this.setHubScrollOffset(
+            this.hubScroll.offset + delta
+        );
+
+    }
+
+
+    setHubScrollOffset(offset) {
+
+        const scroll = this.hubScroll;
+
+        if (!scroll) {
+            return;
+        }
+
+        scroll.offset =
+            Phaser.Math.Clamp(
+                offset,
+                0,
+                scroll.maxScroll
+            );
+
+        scroll.content.y =
+            scroll.viewportTop - scroll.offset;
+
+        for (const zone of scroll.rowZones) {
+            zone.y =
+                scroll.viewportTop +
+                zone.contentY -
+                scroll.offset;
+
+            zone.enabled =
+                zone.y + zone.height / 2 >= scroll.viewportTop &&
+                zone.y - zone.height / 2 <= scroll.viewportBottom;
+        }
+
+        if (scroll.thumb) {
+            const travel =
+                scroll.viewportHeight -
+                scroll.thumbHeight;
+
+            scroll.thumb.y =
+                scroll.viewportTop +
+                scroll.thumbHeight / 2 +
+                (
+                    scroll.maxScroll > 0
+                        ? travel * (scroll.offset / scroll.maxScroll)
+                        : 0
+                );
+        }
+
+    }
+
+
+    openHubPanel(title, subtitle, rows, options = {}) {
 
         this.closeHubPanel();
 
@@ -5890,20 +6372,23 @@ class GameScene extends Phaser.Scene {
 
         this.hubActionZones = [];
 
-        const rowCount = Math.min(rows.length, 5);
-        const panelTop =
-            rowCount <= 2
-                ? 360
-                : rowCount === 3
-                    ? 325
-                    : rowCount === 4
-                        ? 265
-                        : 215;
-
-        const panelHeight =
-            rowCount <= 2
-                ? 560
-                : 280 + rowCount * 116;
+        const manyRows = rows.length > 3;
+        const panelTop = manyRows ? 150 : 292;
+        const panelHeight = manyRows ? 980 : 660;
+        const panelBottom = panelTop + panelHeight;
+        const headerHeight = options.heroTexture ? 154 : 136;
+        const footerHeight = 92;
+        const viewportTop = panelTop + headerHeight;
+        const viewportBottom = panelBottom - footerHeight;
+        const viewportHeight = viewportBottom - viewportTop;
+        const rowHeight = 104;
+        const rowGap = 14;
+        const rowStep = rowHeight + rowGap;
+        const contentHeight =
+            Math.max(
+                viewportHeight,
+                rows.length * rowStep + 8
+            );
 
         const panel =
             this.add.graphics();
@@ -5913,38 +6398,40 @@ class GameScene extends Phaser.Scene {
         panel.lineStyle(3, THEME.gold, 0.55);
         panel.strokeRoundedRect(42, panelTop, 636, panelHeight, 28);
         panel.lineStyle(2, 0xffffff, 0.08);
-        panel.lineBetween(68, panelTop + 122, 652, panelTop + 122);
+        panel.lineBetween(68, viewportTop - 12, 652, viewportTop - 12);
+
+        const headerX = options.heroTexture ? 394 : GAME_WIDTH / 2;
 
         const heading =
             this.add.text(
-                GAME_WIDTH / 2,
-                panelTop + 40,
+                headerX,
+                panelTop + 42,
                 title,
                 {
                     fontFamily: FONT_DISPLAY,
-                    fontSize: "34px",
+                    fontSize: options.heroTexture ? "30px" : "34px",
                     color: "#fff0a2",
-                    align: "center",
-                    wordWrap: { width: 560 }
+                    align: options.heroTexture ? "left" : "center",
+                    wordWrap: { width: options.heroTexture ? 410 : 560 }
                 }
             )
-            .setOrigin(0.5);
+            .setOrigin(options.heroTexture ? 0 : 0.5, 0.5);
 
         const detail =
             this.add.text(
-                GAME_WIDTH / 2,
+                headerX,
                 panelTop + 82,
                 subtitle,
                 {
                     fontFamily: FONT_BODY,
-                    fontSize: "17px",
+                    fontSize: "16px",
                     fontStyle: "bold",
                     color: "#bdc9d5",
-                    align: "center",
-                    wordWrap: { width: 540 }
+                    align: options.heroTexture ? "left" : "center",
+                    wordWrap: { width: options.heroTexture ? 405 : 540 }
                 }
             )
-            .setOrigin(0.5, 0);
+            .setOrigin(options.heroTexture ? 0 : 0.5, 0);
 
         root.add([
             shade,
@@ -5953,10 +6440,60 @@ class GameScene extends Phaser.Scene {
             detail
         ]);
 
-        rows.slice(0, rowCount).forEach((row, index) => {
+        if (options.heroTexture) {
+            const heroPlate =
+                this.add.image(
+                    118,
+                    panelTop + 74,
+                    "uiTinyRoundBlue"
+                )
+                .setScale(1.38)
+                .setAlpha(0.92);
 
-            const y = panelTop + 182 + index * 116;
-            const contentX = row.previewTexture ? 176 : 92;
+            const hero =
+                this.add.image(
+                    118,
+                    panelTop + 76,
+                    options.heroTexture
+                )
+                .setScale(options.heroScale || 0.34);
+
+            root.add([heroPlate, hero]);
+        }
+
+        const scrollContent =
+            this.add.container(0, viewportTop);
+
+        root.add(scrollContent);
+
+        const maskSource =
+            this.add.graphics();
+
+        maskSource.fillStyle(0xffffff, 1);
+        maskSource.fillRect(
+            58,
+            viewportTop,
+            592,
+            viewportHeight
+        );
+        maskSource.setVisible(false);
+        root.add(maskSource);
+
+        const mask =
+            maskSource.createGeometryMask();
+
+        scrollContent.setMask(mask);
+
+        const rowZones = [];
+
+        rows.forEach((row, index) => {
+
+            const localY =
+                8 + index * rowStep;
+
+            const y = localY + rowHeight / 2;
+            const contentX = row.previewTexture ? 178 : 92;
+
             const card =
                 this.add.graphics();
 
@@ -5966,44 +6503,45 @@ class GameScene extends Phaser.Scene {
                     : 0x172638,
                 0.98
             );
-            card.fillRoundedRect(70, y - 44, 580, 96, 18);
+            card.fillRoundedRect(70, localY, 568, rowHeight, 18);
             card.lineStyle(
                 2,
                 row.ready === false
                     ? THEME.red
                     : THEME.cyan,
-                0.28
+                row.highlight ? 0.62 : 0.28
             );
-            card.strokeRoundedRect(70, y - 44, 580, 96, 18);
+            card.strokeRoundedRect(70, localY, 568, rowHeight, 18);
 
             const titleText =
                 this.add.text(
                     contentX,
-                    y - 30,
+                    localY + 14,
                     row.title,
                     {
                         fontFamily: FONT_DISPLAY,
-                        fontSize: "22px",
+                        fontSize: "21px",
                         color: row.ready === false
                             ? "#ffabb3"
-                            : "#eff4e8"
+                            : "#eff4e8",
+                        wordWrap: {
+                            width: row.previewTexture ? 300 : 390
+                        }
                     }
                 );
 
             const descriptionText =
                 this.add.text(
                     contentX,
-                    y - 3,
+                    localY + 43,
                     row.description,
                     {
                         fontFamily: FONT_BODY,
-                        fontSize: "15px",
+                        fontSize: "14px",
                         fontStyle: "bold",
                         color: "#aebdca",
                         wordWrap: {
-                            width: row.previewTexture
-                                ? 285
-                                : 370
+                            width: row.previewTexture ? 302 : 394
                         },
                         lineSpacing: 1
                     }
@@ -6011,12 +6549,12 @@ class GameScene extends Phaser.Scene {
 
             const actionText =
                 this.add.text(
-                    640,
-                    y - 15,
+                    625,
+                    localY + 22,
                     row.action || "OPEN",
                     {
                         fontFamily: FONT_DISPLAY,
-                        fontSize: "13px",
+                        fontSize: "12px",
                         color: row.ready === false
                             ? "#ff9da8"
                             : "#ffd660"
@@ -6032,10 +6570,21 @@ class GameScene extends Phaser.Scene {
             ];
 
             if (row.previewTexture) {
+                const previewPlate =
+                    this.add.image(
+                        124,
+                        y,
+                        row.ready === false
+                            ? "uiTinyRoundRed"
+                            : "uiTinyRoundBlue"
+                    )
+                    .setScale(0.78)
+                    .setAlpha(0.88);
+
                 const preview =
                     this.add.image(
-                        122,
-                        y + 4,
+                        124,
+                        y,
                         row.previewTexture
                     )
                     .setScale(
@@ -6043,29 +6592,39 @@ class GameScene extends Phaser.Scene {
                         0.22
                     );
 
-                rowChildren.push(preview);
+                rowChildren.push(previewPlate, preview);
             }
 
-            if (
-                row.currencyIcon &&
-                Number.isFinite(row.costAmount)
-            ) {
+            const costs =
+                Array.isArray(row.costs)
+                    ? row.costs
+                    : row.currencyIcon && Number.isFinite(row.costAmount)
+                        ? [{
+                            icon: row.currencyIcon,
+                            amount: row.costAmount
+                        }]
+                        : [];
+
+            costs.slice(0, 2).forEach((cost, costIndex) => {
+                const costY =
+                    localY + 52 + costIndex * 25;
+
                 const costIcon =
                     this.add.image(
-                        566,
-                        y + 18,
-                        row.currencyIcon
+                        548,
+                        costY,
+                        cost.icon
                     )
-                    .setScale(0.30);
+                    .setScale(0.26);
 
                 const costAmount =
                     this.add.text(
-                        584,
-                        y + 18,
-                        compactAmount(row.costAmount),
+                        565,
+                        costY,
+                        compactAmount(cost.amount),
                         {
                             fontFamily: FONT_DISPLAY,
-                            fontSize: "19px",
+                            fontSize: "17px",
                             color: row.ready === false
                                 ? "#ff9da8"
                                 : "#ffd660"
@@ -6074,21 +6633,24 @@ class GameScene extends Phaser.Scene {
                     .setOrigin(0, 0.5);
 
                 rowChildren.push(costIcon, costAmount);
-            }
+            });
 
-            root.add(rowChildren);
+            scrollContent.add(rowChildren);
 
-            this.hubActionZones.push({
-                x: 360,
-                y: y + 4,
-                width: 580,
-                height: 96,
+            const zone = {
+                x: 354,
+                y: viewportTop + y,
+                contentY: y,
+                width: 568,
+                height: rowHeight,
+                scrollable: true,
+                enabled: true,
                 callback: () => {
                     if (row.ready === false) {
                         AudioDirector.playEffect("hit");
                         this.showHudToast(
                             row.lockedMessage ||
-                            "You need more Valor for that upgrade."
+                            "That option is not available yet."
                         );
                         return;
                     }
@@ -6096,25 +6658,80 @@ class GameScene extends Phaser.Scene {
                     AudioDirector.playEffect("click");
                     row.callback?.();
                 }
-            });
+            };
 
+            rowZones.push(zone);
+            this.hubActionZones.push(zone);
         });
+
+        let thumb = null;
+        let thumbHeight = viewportHeight;
+        const maxScroll =
+            Math.max(
+                0,
+                contentHeight - viewportHeight
+            );
+
+        if (maxScroll > 0) {
+            const scrollTrack =
+                this.add.graphics();
+
+            scrollTrack.fillStyle(0xffffff, 0.08);
+            scrollTrack.fillRoundedRect(
+                652,
+                viewportTop,
+                8,
+                viewportHeight,
+                4
+            );
+
+            thumbHeight =
+                Math.max(
+                    58,
+                    viewportHeight *
+                    (viewportHeight / contentHeight)
+                );
+
+            thumb =
+                this.add.image(
+                    656,
+                    viewportTop + thumbHeight / 2,
+                    "uiTinyRoundBlue"
+                )
+                .setScale(0.34, Math.max(0.34, thumbHeight / 64))
+                .setAlpha(0.82);
+
+            const scrollHint =
+                this.add.text(
+                    620,
+                    panelBottom - 82,
+                    "DRAG / WHEEL",
+                    {
+                        fontFamily: FONT_TECH,
+                        fontSize: "10px",
+                        fontStyle: "bold",
+                        color: "#71859a"
+                    }
+                )
+                .setOrigin(1, 0.5);
+
+            root.add([scrollTrack, thumb, scrollHint]);
+        }
 
         const closeButton =
             this.add.image(
                 GAME_WIDTH / 2,
-                panelTop + panelHeight - 52,
+                panelBottom - 48,
                 "uiRoundBlue"
             )
-            .setScale(0.78)
-            ;
+            .setScale(0.78);
 
         closeButton.__blocksWorldInput = true;
 
         const closeLabel =
             this.add.text(
                 GAME_WIDTH / 2,
-                panelTop + panelHeight - 52,
+                panelBottom - 48,
                 "BACK",
                 {
                     fontFamily: FONT_DISPLAY,
@@ -6131,9 +6748,11 @@ class GameScene extends Phaser.Scene {
 
         this.hubActionZones.push({
             x: GAME_WIDTH / 2,
-            y: panelTop + panelHeight - 52,
+            y: panelBottom - 48,
             width: 104,
             height: 72,
+            scrollable: false,
+            enabled: true,
             callback: () => {
                 AudioDirector.playEffect("click");
                 this.closeHubPanel();
@@ -6142,6 +6761,26 @@ class GameScene extends Phaser.Scene {
 
         this.hudRoot.add(root);
         this.hubPanel = root;
+        this.hubScroll = {
+            content: scrollContent,
+            mask,
+            rowZones,
+            offset: 0,
+            maxScroll,
+            viewportTop,
+            viewportBottom,
+            viewportHeight,
+            thumb,
+            thumbHeight,
+            panelBounds: {
+                left: 42,
+                right: 678,
+                top: panelTop,
+                bottom: panelBottom
+            }
+        };
+
+        this.setHubScrollOffset(0);
 
     }
 
@@ -6229,13 +6868,13 @@ class GameScene extends Phaser.Scene {
         if (buildingKey) {
             this.openBuildingPanel(lot, buildingKey);
         } else {
-            this.openBuildMenu(lot, 0);
+            this.openBuildMenu(lot);
         }
 
     }
 
 
-    openBuildMenu(lot, page = 0) {
+    openBuildMenu(lot) {
 
         if (!lot?.unlocked || this.saveData.buildings?.[lot.id]) {
             return;
@@ -6253,27 +6892,8 @@ class GameScene extends Phaser.Scene {
             "lanternCloister"
         ];
 
-        const pageSize = 3;
-        const pageCount =
-            Math.ceil(
-                blueprintOrder.length /
-                pageSize
-            );
-
-        page = Phaser.Math.Clamp(
-            page,
-            0,
-            pageCount - 1
-        );
-
-        const keys =
-            blueprintOrder.slice(
-                page * pageSize,
-                page * pageSize + pageSize
-            );
-
         const rows =
-            keys.map(key => {
+            blueprintOrder.map(key => {
 
                 const definition =
                     BUILDING_DEFS[key];
@@ -6333,36 +6953,14 @@ class GameScene extends Phaser.Scene {
 
             });
 
-        if (page > 0) {
-            rows.push({
-                title: "Previous blueprints",
-                description: "Return to the earlier shelf of increasingly dubious civic planning.",
-                action: "BACK",
-                callback: () =>
-                    this.openBuildMenu(
-                        lot,
-                        page - 1
-                    )
-            });
-        }
-
-        if (page < pageCount - 1) {
-            rows.push({
-                title: "More blueprints",
-                description: "There are, regrettably, more ways to urbanize the meadow.",
-                action: "NEXT",
-                callback: () =>
-                    this.openBuildMenu(
-                        lot,
-                        page + 1
-                    )
-            });
-        }
-
         this.openHubPanel(
             `${lot.id.toUpperCase()} • BUILD`,
-            `Riftglass ${compactAmount(this.saveData.riftglass)} • BLUEPRINTS ${page + 1}/${pageCount}`,
-            rows
+            `Riftglass ${compactAmount(this.saveData.riftglass)} • drag to browse every blueprint`,
+            rows,
+            {
+                heroTexture: "uiBuild",
+                heroScale: 0.58
+            }
         );
 
     }
@@ -6405,25 +7003,26 @@ class GameScene extends Phaser.Scene {
 
         this.saveData.riftglass -= cost;
         this.saveData.buildings[lot.id] = key;
+        lot.buildingKey = key;
 
         persistSave(this.saveData);
         this.registry.set("saveData", this.saveData);
         AudioDirector.playEffect("upgrade");
 
         this.closeHubPanel();
+
+        /*
+            IMPORTANT: construction never restarts GameScene.
+            Restarting the scene used to snap Pip back to the spawn point after
+            every purchase. Instead the lot is rebuilt visually in-place.
+        */
+        this.clearGhostlotVisual(lot);
+        lot.graphics = this.drawGhostlot(lot, false);
+        this.animateConstructedBuilding(lot, definition);
+
+        this.updateHUD();
+        this.refreshBuildingAttentionBadges();
         this.showHudToast(`${definition.name} founded.`);
-
-        this.cameras.main.flash(
-            180,
-            218,
-            194,
-            255
-        );
-
-        this.time.delayedCall(
-            240,
-            () => this.scene.restart()
-        );
 
     }
 
@@ -6478,7 +7077,11 @@ class GameScene extends Phaser.Scene {
                     action: "ACTIVE",
                     callback: () => {}
                 }
-            ]
+            ],
+            {
+                heroTexture: definition.texture,
+                heroScale: definition.scale * 0.62
+            }
         );
 
     }
@@ -6501,6 +7104,14 @@ class GameScene extends Phaser.Scene {
 
                 return {
                     title: definition.title,
+                    previewTexture:
+                        definition.reward.dawnseals
+                            ? "dawnSealIcon"
+                            : definition.reward.riftglass
+                                ? "riftGlassIcon"
+                                : "uiValor",
+                    previewScale: 0.27,
+                    highlight: unlocked && !claimed,
                     description:
                         `${definition.description} • Reward: ${this.formatMetaReward(definition.reward)}`,
                     action:
@@ -6527,8 +7138,12 @@ class GameScene extends Phaser.Scene {
 
         this.openHubPanel(
             "LAUREL ARCHIVE",
-            "Achievements exist only because you built somewhere to keep them.",
-            rows
+            "Completed entries glow until their rewards are collected.",
+            rows,
+            {
+                heroTexture: "buildingLaurel",
+                heroScale: 0.34
+            }
         );
 
     }
@@ -6558,15 +7173,11 @@ class GameScene extends Phaser.Scene {
         persistSave(this.saveData);
         this.updateHUD();
         AudioDirector.playEffect("win");
-        this.closeHubPanel();
         this.showHudToast(
             `${definition.title} • ${this.formatMetaReward(definition.reward)}`
         );
-
-        this.time.delayedCall(
-            350,
-            () => this.openAchievementPanel()
-        );
+        this.refreshBuildingAttentionBadges();
+        this.openAchievementPanel();
 
     }
 
@@ -6594,6 +7205,12 @@ class GameScene extends Phaser.Scene {
             [
                 {
                     title: definition.title,
+                    previewTexture:
+                        definition.reward.dawnseals
+                            ? "dawnSealIcon"
+                            : "riftGlassIcon",
+                    previewScale: 0.27,
+                    highlight: complete && !state.claimed,
                     description:
                         `${definition.description} • ${progress}/${definition.target} • Reward: ${this.formatMetaReward(definition.reward)}`,
                     action:
@@ -6613,7 +7230,11 @@ class GameScene extends Phaser.Scene {
                     callback: () =>
                         this.claimBounty()
                 }
-            ]
+            ],
+            {
+                heroTexture: "buildingBounty",
+                heroScale: 0.38
+            }
         );
 
     }
@@ -6640,45 +7261,19 @@ class GameScene extends Phaser.Scene {
         persistSave(this.saveData);
         this.updateHUD();
         AudioDirector.playEffect("upgrade");
-        this.closeHubPanel();
         this.showHudToast(
             `${definition.title} paid • ${this.formatMetaReward(definition.reward)}`
         );
+        this.refreshBuildingAttentionBadges();
+        this.openBountyPanel();
 
     }
 
 
     openTechPanel() {
 
-        const techDefs = [
-            {
-                key: "riftTempo",
-                title: "Rift Tempo",
-                max: 5,
-                description: "Pip attacks 8% faster per level during Riftfall."
-            },
-            {
-                key: "longstep",
-                title: "Longstep",
-                max: 5,
-                description: "Pip movement increases 4% per level everywhere."
-            },
-            {
-                key: "ironPulse",
-                title: "Iron Pulse",
-                max: 3,
-                description: "+1 maximum Riftfall health per level."
-            },
-            {
-                key: "gravemagnet",
-                title: "Gravemagnet",
-                max: 4,
-                description: "Riftglass pickup radius increases by 12 per level."
-            }
-        ];
-
         const rows =
-            techDefs.map(definition => {
+            TECH_DEFS.map(definition => {
 
                 const level =
                     this.saveData.tech[definition.key] || 0;
@@ -6687,73 +7282,112 @@ class GameScene extends Phaser.Scene {
                     level >= definition.max;
 
                 const cost =
-                    maxed
-                        ? null
-                        : 1 + level;
+                    techUpgradeCost(
+                        definition,
+                        level
+                    );
+
+                const affordable =
+                    maxed ||
+                    (
+                        this.saveData.dawnseals >= cost.dawnseals &&
+                        this.saveData.riftglass >= cost.riftglass
+                    );
 
                 return {
                     title: `${definition.title}  •  LV ${level}/${definition.max}`,
-                    description: definition.description,
+                    previewTexture: maxed ? "uiValor" : "dawnSealIcon",
+                    previewScale: 0.26,
+                    description:
+                        maxed
+                            ? `${definition.description} • Research complete.`
+                            : definition.description,
                     action:
                         maxed
                             ? "MAX"
-                            : this.saveData.dawnseals >= cost
+                            : affordable
                                 ? "RESEARCH"
-                                : "NEED SEAL",
-                    currencyIcon:
+                                : "LOCKED",
+                    costs:
                         maxed
-                            ? null
-                            : "dawnSealIcon",
-                    costAmount: cost,
-                    ready:
-                        maxed
-                            ? true
-                            : this.saveData.dawnseals >= cost,
+                            ? []
+                            : [
+                                {
+                                    icon: "dawnSealIcon",
+                                    amount: cost.dawnseals
+                                },
+                                {
+                                    icon: "riftGlassIcon",
+                                    amount: cost.riftglass
+                                }
+                            ],
+                    ready: affordable,
                     lockedMessage:
                         maxed
                             ? "Research complete."
-                            : `Need ${cost - this.saveData.dawnseals} more Dawnseal(s).`,
+                            : `Research requires ${cost.dawnseals} Dawnseal(s) and ${cost.riftglass} Riftglass.`,
                     callback: () =>
-                        this.buyTech(
-                            definition.key,
-                            definition.max
-                        )
+                        this.buyTech(definition.key)
                 };
 
             });
 
         this.openHubPanel(
             "BRASSROOT INSTITUTE",
-            `DAWNSEALS ${compactAmount(this.saveData.dawnseals)} • permanent research`,
-            rows
+            `Permanent research • ${compactAmount(this.saveData.dawnseals)} Dawnseals • ${compactAmount(this.saveData.riftglass)} Riftglass`,
+            rows,
+            {
+                heroTexture: "buildingTech",
+                heroScale: 0.34
+            }
         );
 
     }
 
 
-    buyTech(key, maxLevel) {
+    buyTech(key) {
+
+        const definition =
+            TECH_DEFS.find(item => item.key === key);
+
+        if (!definition) {
+            return;
+        }
 
         const level =
             this.saveData.tech[key] || 0;
 
-        if (level >= maxLevel) {
-            return;
-        }
-
         const cost =
-            1 + level;
+            techUpgradeCost(
+                definition,
+                level
+            );
 
-        if (this.saveData.dawnseals < cost) {
+        if (!cost) {
             return;
         }
 
-        this.saveData.dawnseals -= cost;
+        if (
+            this.saveData.dawnseals < cost.dawnseals ||
+            this.saveData.riftglass < cost.riftglass
+        ) {
+            this.showHudToast(
+                `Need ${cost.dawnseals} Dawnseal(s) + ${cost.riftglass} Riftglass.`
+            );
+            return;
+        }
+
+        this.saveData.dawnseals -= cost.dawnseals;
+        this.saveData.riftglass -= cost.riftglass;
         this.saveData.tech[key] = level + 1;
 
         persistSave(this.saveData);
         this.updateHUD();
         AudioDirector.playEffect("upgrade");
-        this.closeHubPanel();
+        this.refreshBuildingAttentionBadges();
+        this.showHudToast(
+            `${definition.title} advanced to LV ${level + 1}.`
+        );
         this.openTechPanel();
 
     }
@@ -6872,7 +7506,11 @@ class GameScene extends Phaser.Scene {
                         );
                     }
                 }
-            ]
+            ],
+            {
+                heroTexture: "crankhouse",
+                heroScale: 0.42
+            }
         );
 
     }
@@ -8657,6 +9295,7 @@ class GameScene extends Phaser.Scene {
         }
 
 
+        this.refreshBuildingAttentionBadges();
         this.refreshGhostlotPrompt();
 
     }
