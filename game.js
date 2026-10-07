@@ -626,6 +626,187 @@ class GameScene extends Phaser.Scene {
 
     }
 
+    setNullmeadowZoom(value) {
+
+        const zoom =
+            Phaser.Math.Clamp(
+                value,
+                this.nullmeadowMinZoom,
+                this.nullmeadowMaxZoom
+            );
+
+        this.nullmeadowZoom = zoom;
+
+        this.cameras.main.setZoom(
+            zoom
+        );
+
+        this.syncHudToCameraZoom();
+
+    }
+
+
+    syncHudToCameraZoom() {
+
+        if (!this.hudRoot) {
+            return;
+        }
+
+        const zoom =
+            this.cameras.main.zoom;
+
+        /*
+            Phaser camera zoom also zooms objects with
+            scrollFactor(0).
+
+            Counter-scale the entire HUD so its apparent
+            screen size remains exactly 1:1.
+
+            The position compensation accounts for camera
+            zoom occurring around the screen centre.
+        */
+
+        const inverseZoom =
+            1 / zoom;
+
+        this.hudRoot.setScale(
+            inverseZoom
+        );
+
+        this.hudRoot.setPosition(
+
+            GAME_WIDTH / 2 *
+            (
+                1 -
+                inverseZoom
+            ),
+
+            GAME_HEIGHT / 2 *
+            (
+                1 -
+                inverseZoom
+            )
+
+        );
+
+    }
+
+
+    getActiveTouchPointers() {
+
+        return this.input.manager.pointers
+            .filter(
+                pointer =>
+                    pointer.isDown
+            );
+
+    }
+
+
+    beginPinchIfNeeded() {
+
+        const pointers =
+            this.getActiveTouchPointers();
+
+        if (
+            pointers.length < 2
+        ) {
+            return false;
+        }
+
+        const a = pointers[0];
+        const b = pointers[1];
+
+        const distance =
+            Phaser.Math.Distance.Between(
+                a.x,
+                a.y,
+                b.x,
+                b.y
+            );
+
+        if (
+            this.pinchStartDistance === null
+        ) {
+
+            this.pinchStartDistance =
+                Math.max(
+                    1,
+                    distance
+                );
+
+            this.pinchStartZoom =
+                this.cameras.main.zoom;
+
+            /*
+                If the first finger previously issued
+                a walking command, cancel it as soon as
+                this becomes a pinch gesture.
+            */
+
+            this.moveTarget = null;
+
+            if (this.targetMarker) {
+                this.targetMarker.setVisible(
+                    false
+                );
+            }
+
+        }
+
+        return true;
+
+    }
+
+
+    updatePinchZoom() {
+
+        const pointers =
+            this.getActiveTouchPointers();
+
+        if (
+            pointers.length < 2
+        ) {
+
+            this.pinchStartDistance = null;
+            this.pinchStartZoom = null;
+
+            return false;
+        }
+
+        const a = pointers[0];
+        const b = pointers[1];
+
+        const distance =
+            Phaser.Math.Distance.Between(
+                a.x,
+                a.y,
+                b.x,
+                b.y
+            );
+
+        if (
+            this.pinchStartDistance === null
+        ) {
+
+            this.beginPinchIfNeeded();
+
+            return true;
+        }
+
+        const ratio =
+            distance /
+            this.pinchStartDistance;
+
+        this.setNullmeadowZoom(
+            this.pinchStartZoom *
+            ratio
+        );
+
+        return true;
+
+    }
+
 
     create() {
 
@@ -689,6 +870,28 @@ class GameScene extends Phaser.Scene {
 
         this.claimrunLaunching = false;
 
+        /*
+        ============================================================
+        NULLMEADOW CAMERA ZOOM
+        ============================================================
+
+        World camera zoom:
+        - Mouse wheel on desktop
+        - Two-finger pinch on touchscreen
+        - HUD compensates for camera zoom so it remains pixel-perfect
+        */
+
+        this.nullmeadowMinZoom = 0.70;
+        this.nullmeadowMaxZoom = 1.65;
+        this.nullmeadowZoom = 1.0;
+
+        this.pinchStartDistance = null;
+        this.pinchStartZoom = null;
+
+        this.cameras.main.setZoom(
+            this.nullmeadowZoom
+        );
+
 
         this.physics.world.setBounds(
             0,
@@ -737,7 +940,7 @@ class GameScene extends Phaser.Scene {
 
         this.cameras.main.setDeadzone(
             120,
-            220
+            200
         );
 
         this.cameras.main.fadeIn(
@@ -2256,12 +2459,11 @@ class GameScene extends Phaser.Scene {
 
         this.claimCostIcon =
             this.add.image(
-                -123,
+                -120,
                 27,
                 "glimmer"
             )
-            .setScale(0.19);
-
+            .setScale(0.34);
 
         this.claimCostText =
             this.add.text(
@@ -2536,7 +2738,7 @@ class GameScene extends Phaser.Scene {
                     "glimmer"
                 )
                 .setScale(
-                    0.19
+                    0.34
                 );
 
 
@@ -2604,6 +2806,69 @@ class GameScene extends Phaser.Scene {
                 });
 
 
+        /*
+        ============================================================
+        DESKTOP ZOOM
+        ============================================================
+
+        Wheel up   -> zoom in
+        Wheel down -> zoom out
+
+        Exponential scaling behaves better with both
+        mouse wheels and laptop trackpads.
+        */
+
+        this.input.on(
+            "wheel",
+
+            (
+                pointer,
+                currentlyOver,
+                deltaX,
+                deltaY
+            ) => {
+
+                /*
+                    UI interaction shouldn't accidentally
+                    zoom the world behind it.
+                */
+
+                if (
+                    currentlyOver &&
+                    currentlyOver.some(
+                        obj =>
+                            obj &&
+                            obj.__blocksWorldInput
+                    )
+                ) {
+                    return;
+                }
+
+
+                const zoomFactor =
+                    Math.exp(
+                        -deltaY *
+                        0.00125
+                    );
+
+
+                this.setNullmeadowZoom(
+
+                    this.cameras.main.zoom *
+                    zoomFactor
+
+                );
+
+            }
+        );
+
+
+        /*
+        ============================================================
+        TOUCH / MOUSE WORLD INPUT
+        ============================================================
+        */
+
         this.input.on(
             "pointerdown",
 
@@ -2611,6 +2876,19 @@ class GameScene extends Phaser.Scene {
                 pointer,
                 currentlyOver
             ) => {
+
+                /*
+                    If there are now two fingers down,
+                    this gesture belongs to zooming,
+                    not walking.
+                */
+
+                if (
+                    this.beginPinchIfNeeded()
+                ) {
+                    return;
+                }
+
 
                 if (
                     currentlyOver &&
@@ -2644,10 +2922,9 @@ class GameScene extends Phaser.Scene {
 
 
                 const world =
-                    pointer
-                        .positionToCamera(
-                            this.cameras.main
-                        );
+                    pointer.positionToCamera(
+                        this.cameras.main
+                    );
 
 
                 this.moveTarget =
@@ -2672,6 +2949,60 @@ class GameScene extends Phaser.Scene {
                     this.moveTarget.x,
                     this.moveTarget.y
                 );
+
+            }
+        );
+
+
+        /*
+        ============================================================
+        PINCH ZOOM
+        ============================================================
+        */
+
+        this.input.on(
+            "pointermove",
+            () => {
+
+                this.updatePinchZoom();
+
+            }
+        );
+
+
+        this.input.on(
+            "pointerup",
+            () => {
+
+                const pointers =
+                    this.getActiveTouchPointers();
+
+
+                if (
+                    pointers.length < 2
+                ) {
+
+                    this.pinchStartDistance =
+                        null;
+
+                    this.pinchStartZoom =
+                        null;
+
+                }
+
+            }
+        );
+
+
+        this.input.on(
+            "pointerupoutside",
+            () => {
+
+                this.pinchStartDistance =
+                    null;
+
+                this.pinchStartZoom =
+                    null;
 
             }
         );
@@ -2814,10 +3145,10 @@ class GameScene extends Phaser.Scene {
 
         this.glimmerHud =
             this.createCurrencyChip(
-                204,
+                211,
                 53,
                 "glimmer",
-                0.24,
+                0.46,
 
                 "Glimmer",
 
@@ -2827,7 +3158,7 @@ class GameScene extends Phaser.Scene {
 
         this.valorHud =
             this.createCurrencyChip(
-                333,
+                345,
                 53,
                 "uiValor",
                 0.44,
@@ -2839,7 +3170,7 @@ class GameScene extends Phaser.Scene {
 
 
         this.createFutureCurrencySocket(
-            423,
+            444,
             53,
 
             "Future currency",
@@ -2847,90 +3178,13 @@ class GameScene extends Phaser.Scene {
             "Reserved for another economy layer."
         );
 
-
         this.createFutureCurrencySocket(
-            469,
+            494,
             53,
 
             "Future currency",
 
             "Another slot, because this game will absolutely need it."
-        );
-
-
-        /*
-        ============================================================
-        LOOSE RESOURCE COUNTER
-        ============================================================
-        */
-
-        const loosePlate =
-            this.add.image(
-                598,
-                53,
-                "uiTinySquareBlue"
-            )
-            .setScale(0.82);
-
-
-        loosePlate.__blocksWorldInput =
-            true;
-
-
-        this.hudRoot.add(
-            loosePlate
-        );
-
-
-        const looseIcon =
-            this.add.image(
-                577,
-                53,
-                "glimmer"
-            )
-            .setScale(0.17);
-
-
-        this.hudRoot.add(
-            looseIcon
-        );
-
-
-        this.looseHud =
-            this.add.text(
-                605,
-                53,
-
-                `↓${this.glimmerLoose.length}`,
-
-                {
-                    fontFamily:
-                        FONT_DISPLAY,
-
-                    fontSize:
-                        "17px",
-
-                    color:
-                        "#ffffff"
-                }
-            )
-            .setOrigin(
-                0,
-                0.5
-            );
-
-
-        this.hudRoot.add(
-            this.looseHud
-        );
-
-
-        this.attachTooltip(
-            loosePlate,
-
-            "Loose Glimmer",
-
-            "Glimmer on the ground. Pip has to physically walk over it to bank it."
         );
 
 
@@ -3186,6 +3440,11 @@ class GameScene extends Phaser.Scene {
         this.createHudTooltipLayer();
 
         this.updateHUD();
+
+        /*
+            Establish the correct HUD transform immediately.
+        */
+        this.syncHudToCameraZoom();
 
     }
 
@@ -3493,13 +3752,20 @@ class GameScene extends Phaser.Scene {
 
     createHudTooltipLayer() {
 
+        /*
+            IMPORTANT:
+            Tooltip is now a child of hudRoot.
+
+            That means zoom compensation applies to it
+            exactly like the rest of the interface.
+        */
+
         this.tooltipBox =
             this.add.container(
                 0,
                 0
             )
             .setDepth(120000)
-            .setScrollFactor(0)
             .setVisible(false);
 
 
@@ -3588,6 +3854,16 @@ class GameScene extends Phaser.Scene {
             this.tooltipTitle,
             this.tooltipBody
         ]);
+
+
+        /*
+            Put the entire tooltip inside the
+            zoom-compensated HUD hierarchy.
+        */
+
+        this.hudRoot.add(
+            this.tooltipBox
+        );
 
 
         this.tooltipHideEvent =
@@ -3855,7 +4131,7 @@ class GameScene extends Phaser.Scene {
                 this.worldCenter.y + 10,
                 "glimmer"
             )
-            .setScale(0.46)
+            .setScale(0.62)
             .setDepth(
                 this.worldCenter.y +
                 120
@@ -3896,10 +4172,10 @@ class GameScene extends Phaser.Scene {
                 ),
 
             scaleX:
-                0.42,
+                0.58,
 
             scaleY:
-                0.42,
+                0.58,
 
             duration:
                 360,
@@ -4271,12 +4547,21 @@ class GameScene extends Phaser.Scene {
                 }
             )
             .setOrigin(0.5)
-            .setScrollFactor(0)
             .setDepth(130000);
 
 
         toast.__blocksWorldInput =
             true;
+
+
+        /*
+            Keep it attached to the screen even
+            while Nullmeadow zooms.
+        */
+
+        this.hudRoot.add(
+            toast
+        );
 
 
         this.hudToast =
@@ -4464,11 +4749,6 @@ class GameScene extends Phaser.Scene {
         );
 
 
-        this.looseHud.setText(
-            `↓${this.glimmerLoose.length}`
-        );
-
-
         if (
             this.activeGhostlot &&
             this.objectiveText
@@ -4582,6 +4862,12 @@ class GameScene extends Phaser.Scene {
 
 
     update() {
+
+        /*
+            Cheap insurance in case anything else changes
+            the world-camera zoom later.
+        */
+        this.syncHudToCameraZoom();
 
         const body =
             this.player.body;
