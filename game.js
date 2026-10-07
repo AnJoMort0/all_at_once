@@ -44,8 +44,8 @@ CURRENT WORLD CANON
   explanations. Interactive buttons should use supplied UI art whenever practical.
 
 IMPORTANT ASSET NOTES
-- Tiny Swords Tree1.png is a six-cell strip, but only frames 0 and 3 are complete
-  self-contained trees. Using every 256px cell produces sliced-tree artifacts.
+- Tiny Swords Tree1.png contains clipped in-between foliage frames. Use Tree3 and
+  Tree4 instead: their 192px cells are complete, self-contained trees.
 - cute_fantasy/Fences.png is a 4x4 sheet of 16x16 fence tiles, NOT one fence image.
   Load it as a spritesheet. Using the whole 64x64 image creates the chopped fence
   cluster that appeared in earlier Nullmeadow screenshots.
@@ -76,17 +76,17 @@ const THEME = {
 };
 
 const CLAIM_COSTS = [
-    5,
-    12,
-    22,
-    36,
-    55,
-    80,
-    110,
-    150,
-    200,
-    260,
-    330
+    25,
+    100,
+    240,
+    500,
+    900,
+    1500,
+    2300,
+    3400,
+    5000,
+    7000,
+    9500
 ];
 
 
@@ -169,7 +169,8 @@ function defaultSave() {
         sfxEnabled: true,
         unlockedLots: [],
         openedClaimruns: [],
-        openedCaches: []
+        openedCaches: [],
+        runWards: 0
     };
 
 }
@@ -231,6 +232,13 @@ function loadSave() {
         save.valor =
             Math.max(0, Number(save.valor) || 0);
 
+        save.runWards =
+            Phaser.Math.Clamp(
+                Math.floor(Number(save.runWards) || 0),
+                0,
+                3
+            );
+
         return save;
 
     } catch (_) {
@@ -265,6 +273,12 @@ const AudioDirector = {
     sfxEnabled: true,
     musicTimer: null,
     musicStep: 0,
+    unlocked: false,
+    currentScene: null,
+    currentMusicKey: null,
+    currentAmbientKey: null,
+    musicSound: null,
+    ambientSound: null,
 
     setPreferences(save) {
 
@@ -282,6 +296,24 @@ const AudioDirector = {
             );
         }
 
+        if (this.musicSound) {
+            if (this.musicEnabled && !this.musicSound.isPlaying) {
+                this.musicSound.play();
+            }
+            this.musicSound.setVolume(
+                this.musicEnabled ? 0.14 : 0
+            );
+        }
+
+        if (this.ambientSound) {
+            if (this.sfxEnabled && !this.ambientSound.isPlaying) {
+                this.ambientSound.play();
+            }
+            this.ambientSound.setVolume(
+                this.sfxEnabled ? 0.035 : 0
+            );
+        }
+
     },
 
     unlock(save = null) {
@@ -290,11 +322,14 @@ const AudioDirector = {
             this.setPreferences(save);
         }
 
+        this.unlocked = true;
+
         const AudioContextClass =
             window.AudioContext ||
             window.webkitAudioContext;
 
         if (!AudioContextClass) {
+            this.syncSceneAudio();
             return;
         }
 
@@ -317,16 +352,72 @@ const AudioDirector = {
 
             this.musicGain.connect(this.master);
 
-            this.musicTimer =
-                window.setInterval(
-                    () => this.playMusicStep(),
-                    360
-                );
-
         }
 
         if (this.context.state === "suspended") {
             this.context.resume();
+        }
+
+        this.syncSceneAudio();
+
+    },
+
+    setSceneMusic(scene, musicKey, ambientKey) {
+
+        this.currentScene = scene;
+        this.currentMusicKey = musicKey;
+        this.currentAmbientKey = ambientKey;
+
+        this.syncSceneAudio();
+
+    },
+
+    syncSceneAudio() {
+
+        if (!this.unlocked || !this.currentScene?.sound) {
+            return;
+        }
+
+        if (this.musicSound) {
+            this.musicSound.stop();
+            this.musicSound.destroy();
+            this.musicSound = null;
+        }
+
+        if (this.ambientSound) {
+            this.ambientSound.stop();
+            this.ambientSound.destroy();
+            this.ambientSound = null;
+        }
+
+        if (this.currentMusicKey) {
+            this.musicSound =
+                this.currentScene.sound.add(
+                    this.currentMusicKey,
+                    {
+                        loop: true,
+                        volume: this.musicEnabled ? 0.14 : 0
+                    }
+                );
+
+            if (this.musicEnabled) {
+                this.musicSound.play();
+            }
+        }
+
+        if (this.currentAmbientKey) {
+            this.ambientSound =
+                this.currentScene.sound.add(
+                    this.currentAmbientKey,
+                    {
+                        loop: true,
+                        volume: this.sfxEnabled ? 0.035 : 0
+                    }
+                );
+
+            if (this.sfxEnabled) {
+                this.ambientSound.play();
+            }
         }
 
     },
@@ -341,6 +432,13 @@ const AudioDirector = {
                 this.context.currentTime,
                 0.12
             );
+        }
+
+        if (this.musicSound) {
+            if (enabled && !this.musicSound.isPlaying) {
+                this.musicSound.play();
+            }
+            this.musicSound.setVolume(enabled ? 0.14 : 0);
         }
 
     },
@@ -494,7 +592,10 @@ const ASSETS = {
         "assets/images/environment/decorations/cute_fantasy/Oak_Tree_Small.png",
 
     treeStrip:
-        "assets/images/environment/resources/tiny_swords/Wood/Trees/Tree1.png",
+        "assets/images/environment/resources/tiny_swords/Wood/Trees/Tree4.png",
+
+    autumnTreeStrip:
+        "assets/images/environment/resources/tiny_swords/Wood/Trees/Tree3.png",
 
     bushStrip:
         "assets/images/environment/decorations/tiny_swords/Bushes/Bushe1.png",
@@ -614,7 +715,19 @@ const ASSETS = {
         "assets/audio/sfx/retro/power_down.wav",
 
     confirm:
-        "assets/audio/sfx/ui/synth_confirmation.wav"
+        "assets/audio/sfx/ui/synth_confirmation.wav",
+
+    meadowTheme:
+        "assets/audio/music/loop_music8.ogg",
+
+    claimrunTheme:
+        "assets/audio/music/loop_music32.ogg",
+
+    meadowWind:
+        "assets/audio/sfx/environment/ambient_wind.wav",
+
+    cacheOpen:
+        "assets/audio/sfx/materials/wood_small_gather.wav"
 
 };
 
@@ -762,8 +875,17 @@ class GameScene extends Phaser.Scene {
             "fieldTrees",
             ASSETS.treeStrip,
             {
-                frameWidth: 256,
-                frameHeight: 256
+                frameWidth: 192,
+                frameHeight: 192
+            }
+        );
+
+        this.load.spritesheet(
+            "fieldTreesAutumn",
+            ASSETS.autumnTreeStrip,
+            {
+                frameWidth: 192,
+                frameHeight: 192
             }
         );
 
@@ -874,6 +996,26 @@ class GameScene extends Phaser.Scene {
         this.load.audio(
             "confirm",
             ASSETS.confirm
+        );
+
+        this.load.audio(
+            "meadowTheme",
+            ASSETS.meadowTheme
+        );
+
+        this.load.audio(
+            "claimrunTheme",
+            ASSETS.claimrunTheme
+        );
+
+        this.load.audio(
+            "meadowWind",
+            ASSETS.meadowWind
+        );
+
+        this.load.audio(
+            "cacheOpen",
+            ASSETS.cacheOpen
         );
 
     }
@@ -1124,6 +1266,13 @@ class GameScene extends Phaser.Scene {
                 5
             );
 
+        this.saveData.runWards =
+            Phaser.Math.Clamp(
+                Math.floor(Number(this.saveData.runWards) || 0),
+                0,
+                3
+            );
+
         if (typeof this.saveData.musicEnabled !== "boolean") {
             this.saveData.musicEnabled = true;
         }
@@ -1144,6 +1293,8 @@ class GameScene extends Phaser.Scene {
 
         this.glimmerLoose = [];
         this.fieldCaches = [];
+        this.cacheSerial = 0;
+        this.nextCacheSpawnAt = 0;
 
         this.moveTarget = null;
 
@@ -1155,6 +1306,11 @@ class GameScene extends Phaser.Scene {
 
         AudioDirector.setPreferences(
             this.saveData
+        );
+        AudioDirector.setSceneMusic(
+            this,
+            "meadowTheme",
+            "meadowWind"
         );
 
         /*
@@ -1210,10 +1366,12 @@ class GameScene extends Phaser.Scene {
         this.createCrankhouse();
 
         this.createPip();
+        this.spawnFieldCache(true);
 
         this.createAnimations();
 
         this.createActiveGhostlotPrompt();
+        this.createCrankhousePrompt();
 
         this.createInput();
 
@@ -1249,117 +1407,105 @@ class GameScene extends Phaser.Scene {
             this.add.graphics()
                 .setDepth(-1000);
 
-        const tile = 128;
-
-
-        for (
-            let y = 0;
-            y < WORLD_SIZE;
-            y += tile
-        ) {
-
-            for (
-                let x = 0;
-                x < WORLD_SIZE;
-                x += tile
-            ) {
-
-                const odd =
-                    (
-                        (x / tile) +
-                        (y / tile)
-                    ) % 2;
-
-
-                g.fillStyle(
-                    odd
-                        ? 0x78915a
-                        : 0x718955,
-                    1
-                );
-
-                g.fillRect(
-                    x,
-                    y,
-                    tile,
-                    tile
-                );
-
-            }
-
-        }
-
-
-        g.lineStyle(
-            2,
-            0x344934,
-            0.07
-        );
-
-
-        for (
-            let p = 0;
-            p <= WORLD_SIZE;
-            p += tile
-        ) {
-
-            g.lineBetween(
-                p,
-                0,
-                p,
-                WORLD_SIZE
-            );
-
-            g.lineBetween(
-                0,
-                p,
-                WORLD_SIZE,
-                p
-            );
-
-        }
-
+        g.fillStyle(0x718b54, 1);
+        g.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
         const rng =
             this.makeRng(
                 0x4e554c4c
             );
 
-
         for (
             let i = 0;
-            i < 300;
+            i < 240;
             i++
         ) {
 
             const x =
-                50 +
-                rng() *
-                (WORLD_SIZE - 100);
+                rng() * WORLD_SIZE;
 
             const y =
-                50 +
-                rng() *
-                (WORLD_SIZE - 100);
+                rng() * WORLD_SIZE;
 
-            const r =
-                2 +
-                rng() * 4;
-
+            const palette = [
+                0x526f49,
+                0x84965e,
+                0x9b9764,
+                0x617b4d
+            ];
 
             g.fillStyle(
-                rng() > 0.45
-                    ? 0x4e6e43
-                    : 0xc0b179,
-                0.26
+                palette[Math.floor(rng() * palette.length)],
+                0.09 + rng() * 0.10
             );
 
-            g.fillCircle(
+            g.fillEllipse(
                 x,
                 y,
-                r
+                100 + rng() * 260,
+                54 + rng() * 170
             );
 
+        }
+
+        for (let route = 0; route < 12; route++) {
+
+            const startX = 100 + rng() * (WORLD_SIZE - 200);
+            const startY = 100 + rng() * (WORLD_SIZE - 200);
+            const angle = rng() * Math.PI * 2;
+            const length = 180 + rng() * 360;
+            const bend = (rng() - 0.5) * 160;
+            const points = [];
+
+            for (let step = 0; step <= 8; step++) {
+                const t = step / 8;
+                const sideways =
+                    Math.sin(t * Math.PI) * bend;
+
+                points.push({
+                    x: Phaser.Math.Clamp(
+                        startX +
+                        Math.cos(angle) * length * t -
+                        Math.sin(angle) * sideways,
+                        45,
+                        WORLD_SIZE - 45
+                    ),
+                    y: Phaser.Math.Clamp(
+                        startY +
+                        Math.sin(angle) * length * t +
+                        Math.cos(angle) * sideways,
+                        45,
+                        WORLD_SIZE - 45
+                    )
+                });
+            }
+
+            for (const [width, color, alpha] of [
+                [30, 0x594f39, 0.10],
+                [12, 0xc1a675, 0.12]
+            ]) {
+                g.lineStyle(width, color, alpha);
+                g.beginPath();
+                g.moveTo(points[0].x, points[0].y);
+
+                for (let i = 1; i < points.length; i++) {
+                    g.lineTo(points[i].x, points[i].y);
+                }
+
+                g.strokePath();
+            }
+        }
+
+        for (let i = 0; i < 880; i++) {
+            const x = 18 + rng() * (WORLD_SIZE - 36);
+            const y = 18 + rng() * (WORLD_SIZE - 36);
+            const radius = 1.2 + rng() * 3.8;
+
+            g.fillStyle(
+                rng() > 0.54 ? 0x405f40 : 0xd3bd83,
+                0.14 + rng() * 0.15
+            );
+            g.fillCircle(x, y, radius);
         }
 
     }
@@ -2109,29 +2255,24 @@ class GameScene extends Phaser.Scene {
 
             if (pick < 0.24) {
 
-                /*
-                    Tree1 is slightly evil.
-
-                    Frames 1/2/4/5 contain
-                    neighbouring tree slices.
-
-                    Only 0 and 3 are clean.
-                */
+                const treeTexture =
+                    rng() < 0.35
+                        ? "fieldTreesAutumn"
+                        : "fieldTrees";
 
                 obj =
                     this.add.sprite(
                         x,
                         y,
-                        "fieldTrees",
+                        treeTexture,
 
-                        rng() < 0.5
-                            ? 0
-                            : 3
+                        Math.floor(rng() * 8)
                     )
                     .setScale(
-                        0.34 +
-                        rng() * 0.08
+                        0.42 +
+                        rng() * 0.12
                     );
+                obj.setOrigin(0.5, 0.95);
 
             } else if (
                 pick < 0.43
@@ -2232,10 +2373,10 @@ class GameScene extends Phaser.Scene {
                     this.add.image(
                         x,
                         y,
-                        "chest"
+                        "oakClump"
                     )
                     .setScale(
-                        2.0 +
+                        0.85 +
                         rng() * 0.35
                     );
 
@@ -2244,7 +2385,13 @@ class GameScene extends Phaser.Scene {
 
             obj
                 .setDepth(
-                    y - 120
+                    y +
+                    (
+                        obj.texture.key === "fieldTrees"
+                        || obj.texture.key === "fieldTreesAutumn"
+                            ? 28
+                            : 4
+                    )
                 )
                 .setAlpha(
                     0.92 +
@@ -2260,204 +2407,310 @@ class GameScene extends Phaser.Scene {
 
             }
 
-            if (obj.texture.key === "chest") {
-
-                const cacheId =
-                    `Meadow Cache ${
-                        String(this.fieldCaches.length + 1)
-                            .padStart(2, "0")
-                    }`;
-
-                obj.__cacheId = cacheId;
-
-                obj.__opened =
-                    this.saveData.openedCaches
-                        .includes(cacheId);
-
-                if (obj.__opened) {
-
-                    obj.setTint(0x87908a)
-                        .setAlpha(0.58);
-
-                } else {
-
-                    obj.__cacheRing =
-                        this.add.circle(
-                            x,
-                            y + 18,
-                            24,
-                            0xffd660,
-                            0.08
-                        )
-                        .setStrokeStyle(
-                            2,
-                            0xffe58a,
-                            0.62
-                        )
-                        .setDepth(y - 122);
-
-                    this.tweens.add({
-                        targets: obj.__cacheRing,
-                        scaleX: 1.18,
-                        scaleY: 1.18,
-                        alpha: 0.14,
-                        duration: 920,
-                        yoyo: true,
-                        repeat: -1,
-                        ease: "Sine.InOut"
-                    });
-
-                    obj.setInteractive({
-                        useHandCursor: true
-                    });
-
-                    obj.on(
-                        "pointerdown",
-                        (pointer, localX, localY, event) => {
-                            if (event?.stopPropagation) {
-                                event.stopPropagation();
-                            }
-                            this.openFieldCache(obj);
-                        }
-                    );
-
-                }
-
-                this.fieldCaches.push(obj);
-
-            }
-
-
             placed++;
 
         }
 
 
-        /*
-            Correctly construct little fence runs
-            from individual 16×16 atlas cells.
-        */
+        this.createForestClusters(rng);
+        this.createRockyAreas(rng);
+        this.createMeadowPlots(rng);
 
-        for (
-            let i = 0;
-            i < 14;
-            i++
-        ) {
+    }
+
+
+    createForestClusters(rng) {
+
+        let clusters = 0;
+
+        for (let attempt = 0; attempt < 70 && clusters < 13; attempt++) {
+
+            const angle = rng() * Math.PI * 2;
+            const radius = 320 + rng() * 1050;
+            const centerX = Phaser.Math.Clamp(
+                this.worldCenter.x + Math.cos(angle) * radius,
+                180,
+                WORLD_SIZE - 180
+            );
+            const centerY = Phaser.Math.Clamp(
+                this.worldCenter.y + Math.sin(angle) * radius,
+                180,
+                WORLD_SIZE - 180
+            );
+
+            const blocked = this.ghostlots.some(lot =>
+                Phaser.Math.Distance.Between(
+                    centerX,
+                    centerY,
+                    lot.x,
+                    lot.y
+                ) < lot.size * 0.95
+            );
 
             if (
-                rng() > 0.62
+                blocked ||
+                Phaser.Math.Distance.Between(
+                    centerX,
+                    centerY,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < 300
             ) {
                 continue;
             }
 
+            const count = 6 + Math.floor(rng() * 8);
 
-            const angle =
-                rng() *
-                Math.PI *
-                2;
-
-            const radius =
-                520 +
-                rng() *
-                320;
-
-
-            const x =
-                Phaser.Math.Clamp(
-                    this.worldCenter.x +
-                    Math.cos(angle) *
-                    radius,
-
-                    150,
-
-                    WORLD_SIZE - 150
+            for (let i = 0; i < count; i++) {
+                const spread = 35 + rng() * 150;
+                const treeX = Phaser.Math.Clamp(
+                    centerX + (rng() - 0.5) * spread * 2,
+                    100,
+                    WORLD_SIZE - 100
+                );
+                const treeY = Phaser.Math.Clamp(
+                    centerY + (rng() - 0.5) * spread * 2,
+                    100,
+                    WORLD_SIZE - 100
                 );
 
-
-            const y =
-                Phaser.Math.Clamp(
-                    this.worldCenter.y +
-                    Math.sin(angle) *
-                    radius,
-
-                    150,
-
-                    WORLD_SIZE - 150
+                const nearLot = this.ghostlots.some(lot =>
+                    Phaser.Math.Distance.Between(
+                        treeX,
+                        treeY,
+                        lot.x,
+                        lot.y
+                    ) < lot.size * 0.72
                 );
 
+                if (nearLot) {
+                    continue;
+                }
+
+                this.add.ellipse(
+                    treeX,
+                    treeY + 4,
+                    38,
+                    12,
+                    0x233328,
+                    0.14
+                ).setDepth(treeY - 2);
+
+                const tree =
+                    this.add.sprite(
+                        treeX,
+                        treeY,
+                        rng() < 0.36
+                            ? "fieldTreesAutumn"
+                            : "fieldTrees",
+                        Math.floor(rng() * 8)
+                    )
+                    .setOrigin(0.5, 0.95)
+                    .setScale(0.40 + rng() * 0.16)
+                    .setDepth(treeY + 12);
+
+                if (rng() < 0.28) {
+                    tree.setTint(0xb6c87b);
+                }
+            }
+
+            clusters++;
+        }
+
+    }
+
+
+    createRockyAreas(rng) {
+
+        const rockTextures = [
+            "rock1",
+            "rock2",
+            "rock3",
+            "rock4"
+        ];
+
+        let areas = 0;
+
+        for (let attempt = 0; attempt < 55 && areas < 8; attempt++) {
+
+            const angle = rng() * Math.PI * 2;
+            const radius = 350 + rng() * 1000;
+            const centerX = Phaser.Math.Clamp(
+                this.worldCenter.x + Math.cos(angle) * radius,
+                160,
+                WORLD_SIZE - 160
+            );
+            const centerY = Phaser.Math.Clamp(
+                this.worldCenter.y + Math.sin(angle) * radius,
+                160,
+                WORLD_SIZE - 160
+            );
 
             if (
-                this.ghostlots.some(
-                    lot =>
-                        Phaser.Math
-                            .Distance
-                            .Between(
-                                x,
-                                y,
-                                lot.x,
-                                lot.y
-                            )
-                        <
-                        lot.size * 0.9
+                Phaser.Math.Distance.Between(
+                    centerX,
+                    centerY,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < 290 ||
+                this.ghostlots.some(lot =>
+                    Phaser.Math.Distance.Between(
+                        centerX,
+                        centerY,
+                        lot.x,
+                        lot.y
+                    ) < lot.size * 0.85
                 )
             ) {
                 continue;
             }
 
+            const areaRadius = 80 + rng() * 85;
 
-            const length =
-                2 +
-                Math.floor(
-                    rng() * 4
-                );
+            this.add.ellipse(
+                centerX,
+                centerY,
+                areaRadius * 2.4,
+                areaRadius * 1.5,
+                0x787b69,
+                0.22
+            ).setDepth(-155);
 
-            const horizontal =
-                rng() > 0.5;
+            const count = 8 + Math.floor(rng() * 10);
 
+            for (let i = 0; i < count; i++) {
+                const rock =
+                    this.add.image(
+                        centerX + (rng() - 0.5) * areaRadius * 2,
+                        centerY + (rng() - 0.5) * areaRadius * 1.5,
+                        rockTextures[
+                            Math.floor(rng() * rockTextures.length)
+                        ]
+                    )
+                    .setScale(0.38 + rng() * 0.55)
+                    .setDepth(centerY + (rng() - 0.5) * 80);
 
-            for (
-                let j = 0;
-                j < length;
-                j++
-            ) {
-
-                const fx =
-                    x +
-                    (
-                        horizontal
-                            ? j * 29
-                            : 0
-                    );
-
-                const fy =
-                    y +
-                    (
-                        horizontal
-                            ? 0
-                            : j * 29
-                    );
-
-
-                const frame =
-                    horizontal
-                        ? 2
-                        : 4;
-
-
-                this.add.sprite(
-                    fx,
-                    fy,
-                    "fenceTiles",
-                    frame
-                )
-                .setScale(1.8)
-                .setDepth(
-                    fy - 40
-                )
-                .setAlpha(0.88);
-
+                if (rng() < 0.5) {
+                    rock.setFlipX(true);
+                }
             }
 
+            areas++;
+        }
+
+    }
+
+
+    createMeadowPlots(rng) {
+
+        const halfWidth = 112;
+        const halfHeight = 76;
+        let created = 0;
+
+        for (let attempt = 0; attempt < 50 && created < 4; attempt++) {
+
+            const angle = rng() * Math.PI * 2;
+            const radius = 420 + rng() * 520;
+            const x = Phaser.Math.Clamp(
+                this.worldCenter.x + Math.cos(angle) * radius,
+                halfWidth + 90,
+                WORLD_SIZE - halfWidth - 90
+            );
+            const y = Phaser.Math.Clamp(
+                this.worldCenter.y + Math.sin(angle) * radius,
+                halfHeight + 90,
+                WORLD_SIZE - halfHeight - 90
+            );
+
+            const overlapsLot = this.ghostlots.some(lot =>
+                x + halfWidth + 30 > lot.rect.x &&
+                x - halfWidth - 30 < lot.rect.right &&
+                y + halfHeight + 30 > lot.rect.y &&
+                y - halfHeight - 30 < lot.rect.bottom
+            );
+
+            if (
+                overlapsLot ||
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < 350
+            ) {
+                continue;
+            }
+
+            const bed =
+                this.add.graphics()
+                    .setDepth(-150);
+
+            bed.fillStyle(0x594d37, 0.72);
+            bed.fillRoundedRect(
+                x - 82,
+                y - 50,
+                164,
+                100,
+                18
+            );
+
+            for (let row = 0; row < 3; row++) {
+                bed.fillStyle(
+                    row % 2 ? 0x786344 : 0x66563a,
+                    0.82
+                );
+                bed.fillRoundedRect(
+                    x - 70,
+                    y - 35 + row * 34,
+                    140,
+                    9,
+                    4
+                );
+
+                for (let column = 0; column < 5; column++) {
+                    const crop =
+                        this.add.sprite(
+                            x - 60 + column * 30,
+                            y - 42 + row * 34,
+                            "fieldBushes",
+                            Math.floor(rng() * 6)
+                        )
+                        .setScale(0.17 + rng() * 0.035)
+                        .setDepth(y - 12 + row * 10);
+
+                    if (rng() < 0.5) {
+                        crop.setTint(0xc5ce79);
+                    }
+                }
+            }
+
+            for (let segment = 0; segment < 9; segment++) {
+                const fx = x - 108 + segment * 27;
+
+                this.add.sprite(fx, y - halfHeight, "fenceTiles", 2)
+                    .setScale(1.55)
+                    .setDepth(y - halfHeight - 4);
+
+                if (segment !== 4) {
+                    this.add.sprite(fx, y + halfHeight, "fenceTiles", 2)
+                        .setScale(1.55)
+                        .setDepth(y + halfHeight - 4);
+                }
+            }
+
+            for (let segment = 1; segment < 5; segment++) {
+                const fy = y - halfHeight + segment * 27;
+
+                this.add.sprite(x - halfWidth, fy, "fenceTiles", 4)
+                    .setScale(1.55)
+                    .setDepth(fy - 4);
+
+                this.add.sprite(x + halfWidth, fy, "fenceTiles", 4)
+                    .setScale(1.55)
+                    .setDepth(fy - 4);
+            }
+
+            created++;
         }
 
     }
@@ -2603,6 +2856,107 @@ class GameScene extends Phaser.Scene {
             "pointerdown",
             () =>
                 this.generateGlimmer()
+        );
+
+    }
+
+
+    createCrankhousePrompt() {
+
+        const root =
+            this.add.container(
+                this.worldCenter.x + 150,
+                this.worldCenter.y - 78
+            )
+            .setDepth(50001)
+            .setVisible(false);
+
+        const bubble =
+            this.add.graphics();
+
+        bubble.fillStyle(THEME.ink, 0.97);
+        bubble.fillRoundedRect(-137, -44, 274, 88, 20);
+        bubble.lineStyle(3, THEME.cyan, 0.78);
+        bubble.strokeRoundedRect(-137, -44, 274, 88, 20);
+        bubble.fillStyle(THEME.ink, 0.97);
+        bubble.fillTriangle(-12, 44, 12, 44, 0, 60);
+
+        const heading =
+            this.add.text(
+                -112,
+                -27,
+                "UPGRADES",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "20px",
+                    color: "#fff0a2"
+                }
+            );
+
+        const valorIcon =
+            this.add.image(-99, 15, "uiValor")
+                .setScale(0.35);
+
+        const subtitle =
+            this.add.text(
+                -80,
+                5,
+                "CRANKHOUSE",
+                {
+                    fontFamily: FONT_TECH,
+                    fontSize: "11px",
+                    fontStyle: "bold",
+                    color: "#b6c7d5"
+                }
+            );
+
+        const button =
+            this.add.image(95, 0, "uiRoundBlue")
+                .setScale(0.60)
+                .setInteractive({
+                    useHandCursor: true
+                });
+
+        button.__blocksWorldInput = true;
+
+        const icon =
+            this.add.image(95, 0, "uiBuild")
+                .setScale(0.48);
+
+        root.add([
+            bubble,
+            heading,
+            valorIcon,
+            subtitle,
+            button,
+            icon
+        ]);
+
+        this.crankhouseUpgradePrompt = root;
+        this.crankhouseUpgradePromptX =
+            this.worldCenter.x + 150;
+        this.crankhouseUpgradePromptY =
+            this.worldCenter.y - 78;
+
+    }
+
+
+    updateCrankhousePrompt() {
+
+        if (!this.crankhouseUpgradePrompt || !this.player) {
+            return;
+        }
+
+        const nearby =
+            Phaser.Math.Distance.Between(
+                this.player.x,
+                this.player.y,
+                this.worldCenter.x,
+                this.worldCenter.y
+            ) < 250;
+
+        this.crankhouseUpgradePrompt.setVisible(
+            nearby && !this.hubPanel
         );
 
     }
@@ -2920,7 +3274,7 @@ class GameScene extends Phaser.Scene {
                 27,
                 "glimmer"
             )
-            .setScale(0.34);
+            .setScale(0.72);
 
         this.claimCostText =
             this.add.text(
@@ -3125,7 +3479,7 @@ class GameScene extends Phaser.Scene {
 
             this.claimStatusText
                 .setText(
-                    "ENTRY PAID • RETRIES FREE"
+                    "RETRY"
                 )
                 .setColor(
                     "#a8f0b8"
@@ -3166,8 +3520,8 @@ class GameScene extends Phaser.Scene {
             this.claimStatusText
                 .setText(
                     canAfford
-                        ? "PAY ONCE • FIGHT FOR THE LOT"
-                        : "MORE GLIMMER REQUIRED"
+                        ? "ONE-TIME ENTRY"
+                        : "NEED MORE"
                 );
 
 
@@ -3195,7 +3549,7 @@ class GameScene extends Phaser.Scene {
                     "glimmer"
                 )
                 .setScale(
-                    0.34
+                    0.72
                 );
 
 
@@ -3369,6 +3723,26 @@ class GameScene extends Phaser.Scene {
 
                     return;
 
+                }
+
+                if (this.crankhouseUpgradePrompt?.visible) {
+                    const pointerWorld =
+                        pointer.positionToCamera(
+                            this.cameras.main
+                        );
+
+                    if (
+                        Phaser.Math.Distance.Between(
+                            pointerWorld.x,
+                            pointerWorld.y,
+                            this.crankhouseUpgradePromptX + 95,
+                            this.crankhouseUpgradePromptY
+                        ) <= 48
+                    ) {
+                        AudioDirector.playEffect("click");
+                        this.openCrankhousePanel();
+                        return;
+                    }
                 }
 
                 const clickedCache =
@@ -3680,7 +4054,7 @@ class GameScene extends Phaser.Scene {
                         FONT_TECH,
 
                     fontSize:
-                        "12px",
+                        "10px",
 
                     fontStyle:
                         "bold",
@@ -3703,187 +4077,42 @@ class GameScene extends Phaser.Scene {
 
         this.glimmerHud =
             this.createCurrencyChip(
-                211,
+                430,
                 53,
                 "glimmer",
                 0.46,
 
                 "Glimmer",
 
-                "Crankhouse output. Pays one-time entry fees for Calling Lot games."
+                "Glimmer"
             );
 
 
         this.valorHud =
             this.createCurrencyChip(
-                345,
+                558,
                 53,
                 "uiValor",
                 0.44,
 
-                "Valor",
+                    "Valor",
 
-                "Awarded for conquering Ghostlot games. Its larger purpose is still unknown."
+                    "Valor"
             );
 
+            this.createHudIconButton(
+                670,
+                53,
+                "uiSettings",
+                "Settings",
+                "Music, sound and camera controls.",
+                false,
+                () => this.openSettingsPanel()
+            );
 
-        this.createHudIconButton(
-            444,
-            53,
-            "uiBuild",
-            "Crankhouse upgrades",
-            "Spend Valor on better Glimmer output and a clockwork helper.",
-            false,
-            () => this.openCrankhousePanel()
-        );
-
-        this.createHudIconButton(
-            494,
-            53,
-            "uiSettings",
-            "Sound & camera",
-            "Toggle locally generated meadow music and sound effects.",
-            false,
-            () => this.openSettingsPanel()
-        );
-
-
-        /*
-        ============================================================
-        APP RAIL
-        ============================================================
-        */
-
-        const rail =
-            this.add.graphics();
-
-
-        rail.fillStyle(
-            THEME.ink,
-            0.86
-        );
-
-
-        rail.fillRoundedRect(
-            651,
-            116,
-            55,
-            292,
-            18
-        );
-
-
-        rail.lineStyle(
-            2,
-            0xffffff,
-            0.08
-        );
-
-
-        rail.strokeRoundedRect(
-            651,
-            116,
-            55,
-            292,
-            18
-        );
-
-
-        this.hudRoot.add(
-            rail
-        );
-
-
-        this.createHudIconButton(
-            678,
-            151,
-            "uiTown",
-
-            "Nullmeadow",
-
-            "Bring Pip back to the Crankhouse.",
-
-            false,
-            () => this.walkTo(
-                this.worldCenter.x,
-                this.worldCenter.y + 185
-            )
-        );
-
-
-        this.createHudIconButton(
-            678,
-            210,
-            "uiCrossed",
-
-            "Game Cabinet",
-
-            "Guide Pip to the Calling Ghostlot.",
-
-            false,
-            () => {
-                if (this.activeGhostlot) {
-                    this.walkTo(
-                        this.activeGhostlot.x,
-                        this.activeGhostlot.y
-                    );
-                    this.showHudToast(
-                        "Following the Calling Lot."
-                    );
-                } else {
-                    this.showHudToast(
-                        "Every visible Ghostlot is claimed!"
-                    );
-                }
-            }
-        );
-
-
-        this.createHudIconButton(
-            678,
-            269,
-            "uiBuild",
-
-            "Build",
-
-            "Spend Valor to improve Crankhouse output and automation.",
-
-            false,
-            () => this.openCrankhousePanel()
-        );
-
-
-        this.createHudIconButton(
-            678,
-            328,
-            "uiInfo",
-
-            "Codex",
-
-            "Learn Nullmeadow's resources, controls and Claimrun rules.",
-
-            false,
-            () => this.openCodexPanel()
-        );
-
-
-        this.createHudIconButton(
-            678,
-            387,
-            "uiSettings",
-
-            "Settings",
-
-            "Tune music, sound effects and camera zoom.",
-
-            false,
-            () => this.openSettingsPanel()
-        );
-
-
-        /*
-        ============================================================
-        OBJECTIVE BAR
+            /*
+            ============================================================
+            OBJECTIVE BAR
         ============================================================
         */
 
@@ -3927,25 +4156,7 @@ class GameScene extends Phaser.Scene {
         );
 
 
-        const objectiveButton =
-            this.add.image(
-                105,
-                GAME_HEIGHT - 48,
-                "uiTinyRoundBlue"
-            )
-            .setScale(0.76);
-
-
-        objectiveButton.__blocksWorldInput =
-            true;
-
-
-        this.hudRoot.add(
-            objectiveButton
-        );
-
-
-        const objectiveIcon =
+        this.objectiveIcon =
             this.add.image(
                 105,
                 GAME_HEIGHT - 48,
@@ -3955,7 +4166,7 @@ class GameScene extends Phaser.Scene {
 
 
         this.hudRoot.add(
-            objectiveIcon
+            this.objectiveIcon
         );
 
 
@@ -4008,22 +4219,6 @@ class GameScene extends Phaser.Scene {
         this.hudRoot.add(
             this.objectiveSubText
         );
-
-
-        this.attachTooltip(
-            objectiveButton,
-
-            "Current objective",
-
-            "This points to the next useful hub action."
-        );
-
-        this.hudActions.push({
-            x: 105,
-            y: GAME_HEIGHT - 48,
-            radius: 30,
-            callback: () => this.openCodexPanel()
-        });
 
 
         this.createHudTooltipLayer();
@@ -4094,9 +4289,7 @@ class GameScene extends Phaser.Scene {
                 "uiTinySquareBlue"
             )
             .setScale(0.70)
-            .setInteractive({
-                useHandCursor: true
-            });
+            ;
 
 
         plate.__blocksWorldInput =
@@ -4150,25 +4343,6 @@ class GameScene extends Phaser.Scene {
         this.hudRoot.add(
             amount
         );
-
-
-        this.attachTooltip(
-            plate,
-            title,
-            description
-        );
-
-        this.hudActions.push({
-            x: x - 35,
-            y,
-            radius: 30,
-            callback: texture === "uiValor"
-                ? () => this.openCrankhousePanel()
-                : () => this.walkTo(
-                    this.worldCenter.x,
-                    this.worldCenter.y + 185
-                )
-        });
 
 
         return amount;
@@ -4415,20 +4589,24 @@ class GameScene extends Phaser.Scene {
 
         this.hubActionZones = [];
 
+        const rowCount = Math.min(rows.length, 3);
+        const panelTop = rowCount <= 2 ? 360 : 325;
+        const panelHeight = rowCount <= 2 ? 560 : 630;
+
         const panel =
             this.add.graphics();
 
         panel.fillStyle(0x0d1724, 0.99);
-        panel.fillRoundedRect(42, 325, 636, 630, 28);
+        panel.fillRoundedRect(42, panelTop, 636, panelHeight, 28);
         panel.lineStyle(3, THEME.gold, 0.55);
-        panel.strokeRoundedRect(42, 325, 636, 630, 28);
+        panel.strokeRoundedRect(42, panelTop, 636, panelHeight, 28);
         panel.lineStyle(2, 0xffffff, 0.08);
-        panel.lineBetween(68, 446, 652, 446);
+        panel.lineBetween(68, panelTop + 122, 652, panelTop + 122);
 
         const heading =
             this.add.text(
                 GAME_WIDTH / 2,
-                365,
+                panelTop + 40,
                 title,
                 {
                     fontFamily: FONT_DISPLAY,
@@ -4443,7 +4621,7 @@ class GameScene extends Phaser.Scene {
         const detail =
             this.add.text(
                 GAME_WIDTH / 2,
-                412,
+                panelTop + 82,
                 subtitle,
                 {
                     fontFamily: FONT_BODY,
@@ -4463,9 +4641,9 @@ class GameScene extends Phaser.Scene {
             detail
         ]);
 
-        rows.slice(0, 3).forEach((row, index) => {
+        rows.slice(0, rowCount).forEach((row, index) => {
 
-            const y = 504 + index * 116;
+            const y = panelTop + 182 + index * 116;
             const card =
                 this.add.graphics();
 
@@ -4516,12 +4694,12 @@ class GameScene extends Phaser.Scene {
 
             const actionText =
                 this.add.text(
-                    610,
-                    y + 1,
+                    640,
+                    y - 15,
                     row.action || "OPEN",
                     {
                         fontFamily: FONT_DISPLAY,
-                        fontSize: "15px",
+                        fontSize: "13px",
                         color: row.ready === false
                             ? "#ff9da8"
                             : "#ffd660"
@@ -4529,12 +4707,44 @@ class GameScene extends Phaser.Scene {
                 )
                 .setOrigin(1, 0.5);
 
-            root.add([
+            const rowChildren = [
                 card,
                 titleText,
                 descriptionText,
                 actionText
-            ]);
+            ];
+
+            if (
+                row.currencyIcon &&
+                Number.isFinite(row.costAmount)
+            ) {
+                const costIcon =
+                    this.add.image(
+                        566,
+                        y + 18,
+                        row.currencyIcon
+                    )
+                    .setScale(0.30);
+
+                const costAmount =
+                    this.add.text(
+                        584,
+                        y + 18,
+                        compactAmount(row.costAmount),
+                        {
+                            fontFamily: FONT_DISPLAY,
+                            fontSize: "19px",
+                            color: row.ready === false
+                                ? "#ff9da8"
+                                : "#ffd660"
+                        }
+                    )
+                    .setOrigin(0, 0.5);
+
+                rowChildren.push(costIcon, costAmount);
+            }
+
+            root.add(rowChildren);
 
             this.hubActionZones.push({
                 x: 360,
@@ -4561,7 +4771,7 @@ class GameScene extends Phaser.Scene {
         const closeButton =
             this.add.image(
                 GAME_WIDTH / 2,
-                890,
+                panelTop + panelHeight - 52,
                 "uiRoundBlue"
             )
             .setScale(0.78)
@@ -4572,7 +4782,7 @@ class GameScene extends Phaser.Scene {
         const closeLabel =
             this.add.text(
                 GAME_WIDTH / 2,
-                890,
+                panelTop + panelHeight - 52,
                 "BACK",
                 {
                     fontFamily: FONT_DISPLAY,
@@ -4589,7 +4799,7 @@ class GameScene extends Phaser.Scene {
 
         this.hubActionZones.push({
             x: GAME_WIDTH / 2,
-            y: 890,
+            y: panelTop + panelHeight - 52,
             width: 104,
             height: 72,
             callback: () => {
@@ -4635,21 +4845,29 @@ class GameScene extends Phaser.Scene {
 
         this.openHubPanel(
             "CRANKHOUSE WORKS",
-            `Valor ${valor}  •  Cranks yield ${output} now; the next press level yields ${output + 1}.`,
+            "",
             [
                 {
                     title: `Glimmer Press  •  LV ${crankLevel}/8`,
                     description:
-                        `Every crank produces ${output} Glimmer now. Upgrade for +1 per click.`,
+                        `+${output} per crank  →  +${output + 1}`,
                     action:
                         crankLevel >= 8
                             ? "MAX"
-                            : `UPGRADE  •  ${crankCost} V`,
+                            : "UPGRADE",
+                    currencyIcon:
+                        crankLevel >= 8
+                            ? null
+                            : "uiValor",
+                    costAmount:
+                        crankLevel >= 8
+                            ? null
+                            : crankCost,
                     ready:
                         crankLevel >= 8 ||
                         valor >= crankCost,
                     lockedMessage:
-                        `Need ${crankCost - valor} more Valor for the Glimmer Press.`,
+                        `Short ${crankCost - valor} Valor.`,
                     callback: () => {
                         if (crankLevel >= 8) {
                             this.showHudToast(
@@ -4672,19 +4890,24 @@ class GameScene extends Phaser.Scene {
                 },
                 {
                     title: `Clockwork Helper  •  LV ${autoLevel}/5`,
-                    description:
-                        autoLevel === 0
-                            ? "Hire a little helper to make Glimmer while you explore."
-                            : `Adds ${output} Glimmer directly every ${nextAutoSeconds} seconds.`,
+                    description: `+${output} Glimmer every ${nextAutoSeconds}s`,
                     action:
                         autoLevel >= 5
                             ? "MAX"
-                            : `HIRE  •  ${autoCost} V`,
+                            : "HIRE",
+                    currencyIcon:
+                        autoLevel >= 5
+                            ? null
+                            : "uiValor",
+                    costAmount:
+                        autoLevel >= 5
+                            ? null
+                            : autoCost,
                     ready:
                         autoLevel >= 5 ||
                         valor >= autoCost,
                     lockedMessage:
-                        `Need ${autoCost - valor} more Valor to hire the helper.`,
+                        `Short ${autoCost - valor} Valor.`,
                     callback: () => {
                         if (autoLevel >= 5) {
                             this.showHudToast(
@@ -4705,52 +4928,6 @@ class GameScene extends Phaser.Scene {
                             "Clockwork helper hired!"
                         );
                     }
-                },
-                {
-                    title: "How the works work",
-                    description:
-                        "Claim Ghostlots to earn Valor. Spend it here; Glimmer pays Claimrun entry. Pick up loose crank piles by walking into them.",
-                    action: "GOT IT",
-                    callback: () => this.closeHubPanel()
-                }
-            ]
-        );
-
-    }
-
-
-    openCodexPanel() {
-
-        const claimed =
-            this.saveData.unlockedLots.length;
-
-        const nextCost =
-            claimCostForProgress(claimed);
-
-        this.openHubPanel(
-            "PIP'S FIELD NOTES",
-            "Three rules for turning a quiet meadow into a heroic financial mistake.",
-            [
-                {
-                    title: "01  •  CRANK & COLLECT",
-                    description:
-                        "Tap the blue-roofed Crankhouse or press E nearby. Walk into a Glimmer pile to collect its whole value.",
-                    action: "GOT IT",
-                    callback: () => this.closeHubPanel()
-                },
-                {
-                    title: "02  •  CLAIM THE CALLING LOT",
-                    description:
-                        `The nearest locked plot is calling. First entry costs ${nextCost} Glimmer; retries are free until you win.`,
-                    action: "GOT IT",
-                    callback: () => this.closeHubPanel()
-                },
-                {
-                    title: "03  •  MAKE VALOR COUNT",
-                    description:
-                        `You have claimed ${claimed} Ghostlots. Every victory pays Valor for permanent Crankhouse upgrades.`,
-                    action: "LET'S GO",
-                    callback: () => this.closeHubPanel()
                 }
             ]
         );
@@ -4768,12 +4945,11 @@ class GameScene extends Phaser.Scene {
 
         this.openHubPanel(
             "MEADOW SETTINGS",
-            "Music unlocks on your first tap. These preferences are saved on this device.",
+            "",
             [
                 {
                     title: "Meadow music",
-                    description:
-                        "A little procedural chiptune loop, generated locally in your browser.",
+                    description: "Abstraction • meadow theme",
                     action: musicOn ? "ON" : "OFF",
                     callback: () => {
                         this.saveData.musicEnabled = !musicOn;
@@ -4787,8 +4963,7 @@ class GameScene extends Phaser.Scene {
                 },
                 {
                     title: "Sound effects",
-                    description:
-                        "Cranks, pickups, upgrades, gates and heroic victories.",
+                    description: "Effects and ambient wind",
                     action: sfxOn ? "ON" : "OFF",
                     callback: () => {
                         this.saveData.sfxEnabled = !sfxOn;
@@ -4798,18 +4973,6 @@ class GameScene extends Phaser.Scene {
                         );
                         this.closeHubPanel();
                         this.openSettingsPanel();
-                    }
-                },
-                {
-                    title: "Camera comfort",
-                    description:
-                        "Reset the world zoom to its default. Scroll or pinch to zoom again.",
-                    action: "RESET ZOOM",
-                    callback: () => {
-                        this.setNullmeadowZoom(1);
-                        this.showHudToast(
-                            "Camera zoom reset."
-                        );
                     }
                 }
             ]
@@ -5549,6 +5712,123 @@ class GameScene extends Phaser.Scene {
     }
 
 
+    spawnFieldCache(initial = false) {
+
+        const activeCaches =
+            this.fieldCaches.filter(
+                cache => cache.active && !cache.__opened
+            );
+
+        if (activeCaches.length >= 3) {
+            this.nextCacheSpawnAt =
+                this.time.now + Phaser.Math.Between(8000, 15000);
+            return false;
+        }
+
+        const originX =
+            this.player?.x ?? this.worldCenter.x;
+        const originY =
+            this.player?.y ?? this.worldCenter.y;
+
+        for (let attempt = 0; attempt < 60; attempt++) {
+
+            const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+            const distance = initial
+                ? Phaser.Math.Between(180, 260)
+                : Phaser.Math.Between(260, 620);
+
+            const x = Phaser.Math.Clamp(
+                originX + Math.cos(angle) * distance,
+                120,
+                WORLD_SIZE - 120
+            );
+            const y = Phaser.Math.Clamp(
+                originY + Math.sin(angle) * distance,
+                120,
+                WORLD_SIZE - 120
+            );
+
+            const blockedByLot = this.ghostlots.some(lot =>
+                x > lot.rect.x - 72 &&
+                x < lot.rect.right + 72 &&
+                y > lot.rect.y - 72 &&
+                y < lot.rect.bottom + 72
+            );
+
+            const tooNearCache = activeCaches.some(cache =>
+                Phaser.Math.Distance.Between(x, y, cache.x, cache.y) < 190
+            );
+
+            if (
+                blockedByLot ||
+                tooNearCache ||
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < (initial ? 190 : 270)
+            ) {
+                continue;
+            }
+
+            const cache =
+                this.add.image(x, y, "chest")
+                    .setScale(Phaser.Math.FloatBetween(2.15, 2.4))
+                    .setDepth(y + 16)
+                    .setInteractive({
+                        useHandCursor: true
+                    });
+
+            cache.__cacheId = `cache-${++this.cacheSerial}`;
+            cache.__opened = false;
+            cache.__cacheRing =
+                this.add.circle(
+                    x,
+                    y + 15,
+                    24,
+                    0xffd660,
+                    0.10
+                )
+                .setStrokeStyle(2, 0xffe58a, 0.72)
+                .setDepth(y - 2);
+
+            this.tweens.add({
+                targets: cache.__cacheRing,
+                scaleX: 1.22,
+                scaleY: 1.22,
+                alpha: 0.14,
+                duration: 920,
+                yoyo: true,
+                repeat: -1,
+                ease: "Sine.InOut"
+            });
+
+            cache.on(
+                "pointerdown",
+                (pointer, localX, localY, event) => {
+                    if (event?.stopPropagation) {
+                        event.stopPropagation();
+                    }
+                    this.openFieldCache(cache);
+                }
+            );
+
+            this.fieldCaches.push(cache);
+            this.nextCacheSpawnAt =
+                this.time.now + Phaser.Math.Between(18000, 34000);
+
+            return true;
+        }
+
+        this.nextCacheSpawnAt =
+            this.time.now + Phaser.Math.Between(5000, 9000);
+
+        return false;
+
+    }
+
+
     openFieldCache(cache) {
 
         if (
@@ -5561,8 +5841,6 @@ class GameScene extends Phaser.Scene {
 
         cache.__opened = true;
         cache.disableInteractive();
-        cache.setTint(0xffe6a1)
-            .setAlpha(0.78);
 
         this.tweens.killTweensOf(cache);
 
@@ -5574,41 +5852,89 @@ class GameScene extends Phaser.Scene {
             cache.__cacheRing = null;
         }
 
-        const reward =
-            4 +
-            Math.floor(
-                this.saveData.unlockedLots.length / 3
+        this.fieldCaches =
+            this.fieldCaches.filter(
+                fieldCache => fieldCache !== cache
             );
 
-        this.saveData.openedCaches.push(
-            cache.__cacheId
-        );
+        const roll = Phaser.Math.Between(1, 100);
+        let rewardText;
+        let rewardIcon = "glimmer";
 
-        this.glimmerOwned += reward;
-        this.saveData.glimmer =
-            this.glimmerOwned;
+        if (roll <= 62) {
+            const glimmer =
+                Phaser.Math.Between(8, 18) +
+                this.saveData.unlockedLots.length * 2;
+
+            this.glimmerOwned += glimmer;
+            this.saveData.glimmer = this.glimmerOwned;
+            rewardText = `+${glimmer} Glimmer`;
+        } else if (roll <= 84) {
+            const valor = roll >= 82 ? 2 : 1;
+            this.saveData.valor += valor;
+            rewardText = `+${valor} Valor`;
+            rewardIcon = "uiValor";
+        } else if ((this.saveData.runWards || 0) < 3) {
+            this.saveData.runWards =
+                Math.min(3, (this.saveData.runWards || 0) + 1);
+            rewardText = "Warden Sigil • +1 fence integrity";
+            rewardIcon = "uiSword";
+        } else {
+            const glimmer = Phaser.Math.Between(12, 24);
+            this.glimmerOwned += glimmer;
+            this.saveData.glimmer = this.glimmerOwned;
+            rewardText = `+${glimmer} Glimmer`;
+        }
 
         persistSave(this.saveData);
         this.updateHUD();
         AudioDirector.playEffect("upgrade");
 
-        try {
-            this.sound.play("confirm", {
-                volume: 0.22,
-                rate: 1.12
+        if (this.saveData.sfxEnabled !== false) {
+            this.sound.play("cacheOpen", {
+                volume: 0.32,
+                rate: 1.08
             });
-        } catch (_) {}
+        }
 
         this.floatText(
             cache.x,
-            cache.y - 54,
-            `CACHE +${reward}`,
+            cache.y - 58,
+            rewardText.toUpperCase(),
             "#fff0a2"
         );
 
-        this.showHudToast(
-            `Meadow cache found • +${reward} Glimmer`
-        );
+        this.showHudToast(`Cache • ${rewardText}`);
+
+        const rewardSprite =
+            this.add.image(
+                cache.x,
+                cache.y - 20,
+                rewardIcon
+            )
+            .setScale(rewardIcon === "glimmer" ? 0.38 : 0.30)
+            .setDepth(cache.depth + 20);
+
+        this.tweens.add({
+            targets: rewardSprite,
+            y: cache.y - 92,
+            alpha: 0,
+            scaleX: 0.12,
+            scaleY: 0.12,
+            duration: 780,
+            ease: "Cubic.Out",
+            onComplete: () => rewardSprite.destroy()
+        });
+
+        this.tweens.add({
+            targets: cache,
+            scaleX: 0.05,
+            scaleY: 0.05,
+            alpha: 0,
+            duration: 125,
+            ease: "Back.In",
+            onComplete: () => cache.destroy()
+        });
 
     }
 
@@ -6031,13 +6357,18 @@ class GameScene extends Phaser.Scene {
                     this.saveData.autoCrankLevel
                         ? ` • AUTO ${this.saveData.autoCrankLevel}`
                         : ""
+                ) +
+                (
+                    this.saveData.runWards
+                        ? ` • SIGIL ×${this.saveData.runWards}`
+                        : ""
                 )
             );
         }
 
         if (this.crankhouseHint) {
             this.crankhouseHint.setText(
-                `TAP OR PRESS E • +${this.crankOutputAmount()}`
+                `E • +${this.crankOutputAmount()}`
             );
         }
 
@@ -6053,14 +6384,9 @@ class GameScene extends Phaser.Scene {
                         this.activeGhostlot.id
                     );
 
-
-            const cost =
-                claimCostForProgress(
-                    this.saveData
-                        .unlockedLots
-                        .length
-                );
-
+            this.objectiveIcon
+                .setTexture(opened ? "uiSword" : "glimmer")
+                .setScale(opened ? 0.42 : 0.40);
 
             this.objectiveText
                 .setText(
@@ -6071,8 +6397,8 @@ class GameScene extends Phaser.Scene {
                             .toUpperCase()
                     } • ${
                         opened
-                            ? "ENTRY OPEN"
-                            : `${cost} GLIMMER`
+                            ? "READY"
+                            : "CALLING"
                     }`
 
                 );
@@ -6082,8 +6408,8 @@ class GameScene extends Phaser.Scene {
                 .setText(
 
                     opened
-                        ? "Walk onto the Calling Lot and fight again"
-                        : "Walk onto the Calling Lot to open Claimrun"
+                        ? "APPROACH TO RETRY"
+                        : "APPROACH TO ENTER"
 
                 );
 
@@ -6093,13 +6419,13 @@ class GameScene extends Phaser.Scene {
 
             this.objectiveText
                 .setText(
-                    "ALL CURRENT GHOSTLOTS CLAIMED"
+                    "ALL GHOSTLOTS CLAIMED"
                 );
 
 
             this.objectiveSubText
                 .setText(
-                    "Nullmeadow is waiting for the next bad idea."
+                    "The meadow is yours."
                 );
 
         }
@@ -6368,6 +6694,10 @@ class GameScene extends Phaser.Scene {
                 this.player.depth + 20
             );
 
+        if (this.time.now >= this.nextCacheSpawnAt) {
+            this.spawnFieldCache();
+        }
+
         for (const cache of this.fieldCaches) {
 
             if (
@@ -6426,6 +6756,7 @@ class GameScene extends Phaser.Scene {
 
 
         this.updateGhostlotPrompt();
+        this.updateCrankhousePrompt();
 
     }
 
@@ -6554,24 +6885,48 @@ class ClaimRunScene extends Phaser.Scene {
         ============================================================
         */
 
+        const openedRunIndex =
+            this.saveData
+                .openedClaimruns
+                .indexOf(this.lotId);
+
         this.difficulty =
             Math.max(
                 1,
-
-                this.saveData
-                    .unlockedLots
-                    .length +
-                1
+                openedRunIndex >= 0
+                    ? openedRunIndex + 1
+                    : this.saveData
+                        .openedClaimruns
+                        .length + 1
             );
 
         AudioDirector.setPreferences(
             this.saveData
+        );
+        AudioDirector.setSceneMusic(
+            this,
+            "claimrunTheme",
+            "meadowWind"
         );
 
         this.input.once(
             "pointerdown",
             () => AudioDirector.unlock(this.saveData)
         );
+        this.input.keyboard.once(
+            "keydown",
+            () => AudioDirector.unlock(this.saveData)
+        );
+
+        this.wardenSigils =
+            Phaser.Math.Clamp(
+                Math.floor(Number(this.saveData.runWards) || 0),
+                0,
+                3
+            );
+        this.saveData.runWards = 0;
+        persistSave(this.saveData);
+        this.registry.set("saveData", this.saveData);
 
         this.totalEnemies =
             8 +
@@ -6662,8 +7017,8 @@ class ClaimRunScene extends Phaser.Scene {
 
         this.integrityMax =
             this.difficulty < 3
-                ? 7
-                : 5;
+                ? 7 + this.wardenSigils
+                : 5 + this.wardenSigils;
 
         this.integrity =
             this.integrityMax;
@@ -6718,6 +7073,7 @@ class ClaimRunScene extends Phaser.Scene {
         this.createClaimAnimations();
 
         this.createArena();
+        this.createArenaScenery();
 
         this.createChallengeGroups();
 
@@ -6838,6 +7194,61 @@ class ClaimRunScene extends Phaser.Scene {
 
             });
 
+        }
+
+    }
+
+
+    createArenaScenery() {
+
+        const rng = () => Phaser.Math.RND.frac();
+
+        for (const side of [22, GAME_WIDTH - 22]) {
+            for (let y = 245; y <= 1035; y += 158) {
+                const tree =
+                    this.add.sprite(
+                        side + Phaser.Math.Between(-5, 5),
+                        y,
+                        rng() < 0.38
+                            ? "fieldTreesAutumn"
+                            : "fieldTrees",
+                        Math.floor(rng() * 8)
+                    )
+                    .setOrigin(0.5, 0.95)
+                    .setScale(0.18 + rng() * 0.05)
+                    .setAlpha(0.52 + rng() * 0.12)
+                    .setDepth(-920);
+
+                if (rng() < 0.5) {
+                    tree.setFlipX(true);
+                }
+
+                if (Math.floor((y - 245) / 158) % 2 === 0) {
+                    this.add.image(
+                        side + (side < GAME_WIDTH / 2 ? 22 : -22),
+                        y + 55,
+                        `rock${1 + Math.floor(rng() * 4)}`
+                    )
+                    .setScale(0.30 + rng() * 0.12)
+                    .setAlpha(0.64)
+                    .setDepth(-910);
+                }
+            }
+        }
+
+        const glows =
+            this.add.graphics()
+                .setDepth(-905);
+
+        for (let i = 0; i < 24; i++) {
+            const x = Phaser.Math.Between(80, GAME_WIDTH - 80);
+            const y = Phaser.Math.Between(220, 940);
+
+            glows.fillStyle(
+                i % 3 === 0 ? 0xf1c36f : 0x83abc7,
+                0.08
+            );
+            glows.fillCircle(x, y, Phaser.Math.Between(2, 5));
         }
 
     }
