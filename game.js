@@ -18,7 +18,8 @@ DEVELOPMENT RULES
 CURRENT WORLD CANON
 - Nullmeadow: the overworld/hub settlement.
 - Pip: the roaming player character who physically picks up loose resources.
-- The Crankhouse: central clickable building. Each crank ejects one Glimmer.
+- The Crankhouse: central clickable building. Each crank ejects a loose
+  Glimmer pile; Valor upgrades the pile yield and passive clockwork production.
 - Glimmer: primary hub currency/resource.
 - Ghostlots: locked building plots scattered around Nullmeadow. The nearest locked
   Ghostlot becomes the Calling Lot.
@@ -33,6 +34,12 @@ CURRENT WORLD CANON
   and may be replayed for free until that lot is claimed.
 - Valor: reward currency earned by winning Claimruns.
 - Winning permanently claims the Ghostlot, awards +1 Valor and calls the next lot.
+- Gold-ring Meadow Caches are one-time, persistent Glimmer finds scattered through
+  the generated meadow.
+- The first Claimruns are short and forgiving. Later runs add drifting Rift Walkers,
+  armored elites and a named Meadow Titan boss.
+- Chiptune music and extra feedback sounds are synthesized locally after the first
+  input, so the game has audio without requiring additional downloads.
 - UI direction: compact, asset-heavy, mobile-game-like, touch-first, with hover/tap
   explanations. Interactive buttons should use supplied UI art whenever practical.
 
@@ -156,8 +163,13 @@ function defaultSave() {
     return {
         glimmer: 0,
         valor: 0,
+        crankLevel: 0,
+        autoCrankLevel: 0,
+        musicEnabled: true,
+        sfxEnabled: true,
         unlockedLots: [],
-        openedClaimruns: []
+        openedClaimruns: [],
+        openedCaches: []
     };
 
 }
@@ -195,6 +207,30 @@ function loadSave() {
             save.openedClaimruns = [];
         }
 
+        if (!Array.isArray(save.openedCaches)) {
+            save.openedCaches = [];
+        }
+
+        save.crankLevel =
+            Phaser.Math.Clamp(
+                Math.floor(Number(save.crankLevel) || 0),
+                0,
+                8
+            );
+
+        save.autoCrankLevel =
+            Phaser.Math.Clamp(
+                Math.floor(Number(save.autoCrankLevel) || 0),
+                0,
+                5
+            );
+
+        save.glimmer =
+            Math.max(0, Number(save.glimmer) || 0);
+
+        save.valor =
+            Math.max(0, Number(save.valor) || 0);
+
         return save;
 
     } catch (_) {
@@ -218,6 +254,222 @@ function persistSave(save) {
     } catch (_) {}
 
 }
+
+
+const AudioDirector = {
+
+    context: null,
+    master: null,
+    musicGain: null,
+    musicEnabled: true,
+    sfxEnabled: true,
+    musicTimer: null,
+    musicStep: 0,
+
+    setPreferences(save) {
+
+        this.musicEnabled =
+            save.musicEnabled !== false;
+
+        this.sfxEnabled =
+            save.sfxEnabled !== false;
+
+        if (this.musicGain && this.context) {
+            this.musicGain.gain.setTargetAtTime(
+                this.musicEnabled ? 0.18 : 0,
+                this.context.currentTime,
+                0.12
+            );
+        }
+
+    },
+
+    unlock(save = null) {
+
+        if (save) {
+            this.setPreferences(save);
+        }
+
+        const AudioContextClass =
+            window.AudioContext ||
+            window.webkitAudioContext;
+
+        if (!AudioContextClass) {
+            return;
+        }
+
+        if (!this.context) {
+
+            this.context =
+                new AudioContextClass();
+
+            this.master =
+                this.context.createGain();
+
+            this.master.gain.value = 0.65;
+            this.master.connect(this.context.destination);
+
+            this.musicGain =
+                this.context.createGain();
+
+            this.musicGain.gain.value =
+                this.musicEnabled ? 0.18 : 0;
+
+            this.musicGain.connect(this.master);
+
+            this.musicTimer =
+                window.setInterval(
+                    () => this.playMusicStep(),
+                    360
+                );
+
+        }
+
+        if (this.context.state === "suspended") {
+            this.context.resume();
+        }
+
+    },
+
+    setMusicEnabled(enabled) {
+
+        this.musicEnabled = enabled;
+
+        if (this.musicGain && this.context) {
+            this.musicGain.gain.setTargetAtTime(
+                enabled ? 0.18 : 0,
+                this.context.currentTime,
+                0.12
+            );
+        }
+
+    },
+
+    playTone(
+        frequency,
+        duration = 0.12,
+        waveform = "sine",
+        volume = 0.1,
+        destination = null
+    ) {
+
+        if (
+            !this.context ||
+            (!destination && !this.sfxEnabled) ||
+            this.context.state !== "running"
+        ) {
+            return;
+        }
+
+        const now = this.context.currentTime;
+        const oscillator =
+            this.context.createOscillator();
+        const gain =
+            this.context.createGain();
+
+        oscillator.type = waveform;
+        oscillator.frequency.setValueAtTime(
+            frequency,
+            now
+        );
+
+        gain.gain.setValueAtTime(
+            Math.max(0.0001, volume),
+            now
+        );
+        gain.gain.exponentialRampToValueAtTime(
+            0.0001,
+            now + duration
+        );
+
+        oscillator.connect(gain);
+        gain.connect(destination || this.master);
+        oscillator.start(now);
+        oscillator.stop(now + duration);
+
+    },
+
+    playMusicStep() {
+
+        if (
+            !this.musicEnabled ||
+            !this.context ||
+            this.context.state !== "running"
+        ) {
+            return;
+        }
+
+        const melody = [
+            392, 494, 587, 494,
+            440, 587, 659, 587,
+            392, 494, 587, 784,
+            659, 587, 494, 440
+        ];
+
+        const note =
+            melody[this.musicStep % melody.length];
+
+        this.playTone(
+            note,
+            0.27,
+            "triangle",
+            0.16,
+            this.musicGain
+        );
+
+        if (this.musicStep % 4 === 0) {
+            const bassNotes = [98, 110, 82, 123];
+            this.playTone(
+                bassNotes[
+                    Math.floor(this.musicStep / 4) %
+                    bassNotes.length
+                ],
+                0.48,
+                "sine",
+                0.12,
+                this.musicGain
+            );
+        }
+
+        this.musicStep++;
+
+    },
+
+    playEffect(kind) {
+
+        const effects = {
+            crank: [523, 0.09, "square", 0.045],
+            pickup: [880, 0.16, "sine", 0.075],
+            upgrade: [659, 0.22, "triangle", 0.10],
+            click: [740, 0.07, "square", 0.035],
+            hit: [165, 0.12, "sawtooth", 0.055],
+            gate: [1046, 0.18, "triangle", 0.07],
+            breach: [110, 0.25, "sawtooth", 0.08],
+            win: [1175, 0.32, "triangle", 0.12]
+        };
+
+        const effect = effects[kind];
+
+        if (effect) {
+            this.playTone(...effect);
+        }
+
+        if (
+            kind === "upgrade" ||
+            kind === "win"
+        ) {
+            this.playTone(
+                kind === "win" ? 1568 : 988,
+                0.22,
+                "triangle",
+                0.08
+            );
+        }
+
+    }
+
+};
+
 
 
 const ASSETS = {
@@ -854,6 +1106,32 @@ class GameScene extends Phaser.Scene {
 
         }
 
+        if (!Array.isArray(this.saveData.openedCaches)) {
+            this.saveData.openedCaches = [];
+        }
+
+        this.saveData.crankLevel =
+            Phaser.Math.Clamp(
+                Math.floor(Number(this.saveData.crankLevel) || 0),
+                0,
+                8
+            );
+
+        this.saveData.autoCrankLevel =
+            Phaser.Math.Clamp(
+                Math.floor(Number(this.saveData.autoCrankLevel) || 0),
+                0,
+                5
+            );
+
+        if (typeof this.saveData.musicEnabled !== "boolean") {
+            this.saveData.musicEnabled = true;
+        }
+
+        if (typeof this.saveData.sfxEnabled !== "boolean") {
+            this.saveData.sfxEnabled = true;
+        }
+
 
         this.registry.set(
             "saveData",
@@ -865,10 +1143,19 @@ class GameScene extends Phaser.Scene {
             this.saveData.glimmer || 0;
 
         this.glimmerLoose = [];
+        this.fieldCaches = [];
 
         this.moveTarget = null;
 
         this.claimrunLaunching = false;
+        this.crankStreak = 0;
+        this.lastCrankAt = 0;
+        this.hudActions = [];
+        this.hubActionZones = [];
+
+        AudioDirector.setPreferences(
+            this.saveData
+        );
 
         /*
         ============================================================
@@ -918,6 +1205,8 @@ class GameScene extends Phaser.Scene {
 
         this.createScenery();
 
+        this.createWorldAtmosphere();
+
         this.createCrankhouse();
 
         this.createPip();
@@ -930,6 +1219,7 @@ class GameScene extends Phaser.Scene {
 
         this.createHUD();
 
+        this.startAutoCrank();
 
         this.cameras.main.startFollow(
             this.player,
@@ -1030,31 +1320,6 @@ class GameScene extends Phaser.Scene {
         }
 
 
-        g.fillStyle(
-            0xb8aa76,
-            0.18
-        );
-
-        g.fillCircle(
-            this.worldCenter.x,
-            this.worldCenter.y,
-            285
-        );
-
-
-        g.lineStyle(
-            7,
-            0xd5c28c,
-            0.10
-        );
-
-        g.strokeCircle(
-            this.worldCenter.x,
-            this.worldCenter.y,
-            285
-        );
-
-
         const rng =
             this.makeRng(
                 0x4e554c4c
@@ -1093,6 +1358,128 @@ class GameScene extends Phaser.Scene {
                 x,
                 y,
                 r
+            );
+
+        }
+
+    }
+
+
+    createWorldAtmosphere() {
+
+        this.worldMotes = [];
+
+        const rng =
+            this.makeRng(
+                0x4d4f5445
+            );
+
+        for (
+            let i = 0;
+            i < 48;
+            i++
+        ) {
+
+            const x =
+                90 +
+                rng() *
+                (WORLD_SIZE - 180);
+
+            const y =
+                90 +
+                rng() *
+                (WORLD_SIZE - 180);
+
+            const mote =
+                this.add.circle(
+                    x,
+                    y,
+                    2 + rng() * 3,
+                    rng() < 0.45
+                        ? 0xfff2af
+                        : 0xaee8ff,
+                    0.42 + rng() * 0.4
+                )
+                .setDepth(-230)
+                .setAlpha(0.3 + rng() * 0.5);
+
+            this.worldMotes.push({
+                body: mote,
+                x,
+                y,
+                driftX: 
+                    Phaser.Math.FloatBetween(
+                        -18,
+                        18
+                    ),
+                driftY:
+                    Phaser.Math.FloatBetween(
+                        -18,
+                        18
+                    ),
+                phase:
+                    rng() * Math.PI * 2
+            });
+
+        }
+
+    }
+
+
+    updateWorldAtmosphere() {
+
+        if (!this.worldMotes) {
+            return;
+        }
+
+        const time =
+            this.time.now * 0.0008;
+
+        for (const mote of this.worldMotes) {
+
+            const driftX =
+                Math.sin(
+                    time +
+                    mote.phase
+                ) *
+                mote.driftX;
+
+            const driftY =
+                Math.cos(
+                    time * 1.15 +
+                    mote.phase
+                ) *
+                mote.driftY;
+
+            const x =
+                Phaser.Math.Wrap(
+                    mote.x +
+                    driftX,
+                    0,
+                    WORLD_SIZE
+                );
+
+            const y =
+                Phaser.Math.Wrap(
+                    mote.y +
+                    driftY,
+                    0,
+                    WORLD_SIZE
+                );
+
+            mote.body.setPosition(
+                x,
+                y
+            );
+
+            mote.body.setAlpha(
+                0.25 +
+                Math.sin(
+                    time * 3 +
+                    mote.phase
+                ) *
+                0.22 +
+                0.18
             );
 
         }
@@ -1873,6 +2260,73 @@ class GameScene extends Phaser.Scene {
 
             }
 
+            if (obj.texture.key === "chest") {
+
+                const cacheId =
+                    `Meadow Cache ${
+                        String(this.fieldCaches.length + 1)
+                            .padStart(2, "0")
+                    }`;
+
+                obj.__cacheId = cacheId;
+
+                obj.__opened =
+                    this.saveData.openedCaches
+                        .includes(cacheId);
+
+                if (obj.__opened) {
+
+                    obj.setTint(0x87908a)
+                        .setAlpha(0.58);
+
+                } else {
+
+                    obj.__cacheRing =
+                        this.add.circle(
+                            x,
+                            y + 18,
+                            24,
+                            0xffd660,
+                            0.08
+                        )
+                        .setStrokeStyle(
+                            2,
+                            0xffe58a,
+                            0.62
+                        )
+                        .setDepth(y - 122);
+
+                    this.tweens.add({
+                        targets: obj.__cacheRing,
+                        scaleX: 1.18,
+                        scaleY: 1.18,
+                        alpha: 0.14,
+                        duration: 920,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: "Sine.InOut"
+                    });
+
+                    obj.setInteractive({
+                        useHandCursor: true
+                    });
+
+                    obj.on(
+                        "pointerdown",
+                        (pointer, localX, localY, event) => {
+                            if (event?.stopPropagation) {
+                                event.stopPropagation();
+                            }
+                            this.openFieldCache(obj);
+                        }
+                    );
+
+                }
+
+                this.fieldCaches.push(obj);
+
+            }
+
 
             placed++;
 
@@ -2043,6 +2497,9 @@ class GameScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
+        this.crankhouse.__blocksWorldInput =
+            true;
+
 
         this.crankhouseLabel =
             this.add.text(
@@ -2077,7 +2534,7 @@ class GameScene extends Phaser.Scene {
                 x,
                 y + 122,
 
-                "TAP TO CRANK",
+                "TAP OR PRESS E • +1",
 
                 {
                     fontFamily:
@@ -2766,6 +3223,16 @@ class GameScene extends Phaser.Scene {
 
     createInput() {
 
+        this.input.once(
+            "pointerdown",
+            () => AudioDirector.unlock(this.saveData)
+        );
+
+        this.input.keyboard.once(
+            "keydown",
+            () => AudioDirector.unlock(this.saveData)
+        );
+
         this.cursors =
             this.input.keyboard
                 .createCursorKeys();
@@ -2802,8 +3269,12 @@ class GameScene extends Phaser.Scene {
                             .Keyboard
                             .KeyCodes
                             .D
-
                 });
+
+        this.crankKey =
+            this.input.keyboard.addKey(
+                Phaser.Input.Keyboard.KeyCodes.E
+            );
 
 
         /*
@@ -2876,6 +3347,92 @@ class GameScene extends Phaser.Scene {
                 pointer,
                 currentlyOver
             ) => {
+
+                if (this.hubPanel) {
+
+                    const zone =
+                        this.hubActionZones
+                            .slice()
+                            .reverse()
+                            .find(action =>
+                                Math.abs(pointer.x - action.x) <=
+                                    action.width / 2 &&
+                                Math.abs(pointer.y - action.y) <=
+                                    action.height / 2
+                            );
+
+                    if (zone) {
+                        zone.callback();
+                    } else {
+                        this.closeHubPanel();
+                    }
+
+                    return;
+
+                }
+
+                const clickedCache =
+                    currentlyOver &&
+                    currentlyOver.find(
+                        object => object?.__cacheId
+                    );
+
+                if (clickedCache) {
+                    this.openFieldCache(clickedCache);
+                    return;
+                }
+
+
+                const hudAction =
+                    this.hudActions
+                        .slice()
+                        .reverse()
+                        .find(action =>
+                            Phaser.Math.Distance.Between(
+                                pointer.x,
+                                pointer.y,
+                                action.x,
+                                action.y
+                            ) <= action.radius
+                        );
+
+                if (hudAction) {
+                    AudioDirector.playEffect("click");
+                    hudAction.callback();
+                    return;
+                }
+
+
+                if (this.activeGhostlot) {
+
+                    const pointerWorld =
+                        pointer.positionToCamera(
+                            this.cameras.main
+                        );
+
+                    const promptX =
+                        this.activeGhostlot.x + 108;
+
+                    const promptY =
+                        this.activeGhostlot.y -
+                        this.activeGhostlot.size / 2 -
+                        108;
+
+                    if (
+                        this.ghostlotPrompt?.visible &&
+                        Phaser.Math.Distance.Between(
+                            pointerWorld.x,
+                            pointerWorld.y,
+                            promptX,
+                            promptY
+                        ) <= 42
+                    ) {
+                        this.beginClaimrun();
+                        return;
+                    }
+
+                }
+
 
                 /*
                     If there are now two fingers down,
@@ -3101,7 +3658,7 @@ class GameScene extends Phaser.Scene {
                         FONT_DISPLAY,
 
                     fontSize:
-                        "20px",
+                        "24px",
 
                     color:
                         "#e9f2cc"
@@ -3111,20 +3668,19 @@ class GameScene extends Phaser.Scene {
         );
 
 
-        this.hudRoot.add(
-
+        this.hubStatusText =
             this.add.text(
                 35,
                 53,
 
-                "HUB 001",
+                "CRANKHOUSE • LEVEL 0",
 
                 {
                     fontFamily:
                         FONT_TECH,
 
                     fontSize:
-                        "11px",
+                        "12px",
 
                     fontStyle:
                         "bold",
@@ -3132,8 +3688,10 @@ class GameScene extends Phaser.Scene {
                     color:
                         "#77889b"
                 }
-            )
+            );
 
+        this.hudRoot.add(
+            this.hubStatusText
         );
 
 
@@ -3169,22 +3727,24 @@ class GameScene extends Phaser.Scene {
             );
 
 
-        this.createFutureCurrencySocket(
+        this.createHudIconButton(
             444,
             53,
-
-            "Future currency",
-
-            "Reserved for another economy layer."
+            "uiBuild",
+            "Crankhouse upgrades",
+            "Spend Valor on better Glimmer output and a clockwork helper.",
+            false,
+            () => this.openCrankhousePanel()
         );
 
-        this.createFutureCurrencySocket(
+        this.createHudIconButton(
             494,
             53,
-
-            "Future currency",
-
-            "Another slot, because this game will absolutely need it."
+            "uiSettings",
+            "Sound & camera",
+            "Toggle locally generated meadow music and sound effects.",
+            false,
+            () => this.openSettingsPanel()
         );
 
 
@@ -3241,9 +3801,13 @@ class GameScene extends Phaser.Scene {
 
             "Nullmeadow",
 
-            "The settlement hub.",
+            "Bring Pip back to the Crankhouse.",
 
-            false
+            false,
+            () => this.walkTo(
+                this.worldCenter.x,
+                this.worldCenter.y + 185
+            )
         );
 
 
@@ -3254,9 +3818,24 @@ class GameScene extends Phaser.Scene {
 
             "Game Cabinet",
 
-            "Embedded games collect here. Claimrun is Game #001.",
+            "Guide Pip to the Calling Ghostlot.",
 
-            false
+            false,
+            () => {
+                if (this.activeGhostlot) {
+                    this.walkTo(
+                        this.activeGhostlot.x,
+                        this.activeGhostlot.y
+                    );
+                    this.showHudToast(
+                        "Following the Calling Lot."
+                    );
+                } else {
+                    this.showHudToast(
+                        "Every visible Ghostlot is claimed!"
+                    );
+                }
+            }
         );
 
 
@@ -3267,9 +3846,10 @@ class GameScene extends Phaser.Scene {
 
             "Build",
 
-            "Claimed Ghostlots will eventually construct things here.",
+            "Spend Valor to improve Crankhouse output and automation.",
 
-            true
+            false,
+            () => this.openCrankhousePanel()
         );
 
 
@@ -3280,9 +3860,10 @@ class GameScene extends Phaser.Scene {
 
             "Codex",
 
-            "Future home of discoveries, names and system explanations.",
+            "Learn Nullmeadow's resources, controls and Claimrun rules.",
 
-            true
+            false,
+            () => this.openCodexPanel()
         );
 
 
@@ -3293,9 +3874,10 @@ class GameScene extends Phaser.Scene {
 
             "Settings",
 
-            "Future audio and accessibility controls.",
+            "Tune music, sound effects and camera zoom.",
 
-            true
+            false,
+            () => this.openSettingsPanel()
         );
 
 
@@ -3388,7 +3970,7 @@ class GameScene extends Phaser.Scene {
                         FONT_DISPLAY,
 
                     fontSize:
-                        "14px",
+                        "17px",
 
                     color:
                         "#eef3e4"
@@ -3412,7 +3994,7 @@ class GameScene extends Phaser.Scene {
                         FONT_BODY,
 
                     fontSize:
-                        "11px",
+                        "13px",
 
                     fontStyle:
                         "bold",
@@ -3435,6 +4017,13 @@ class GameScene extends Phaser.Scene {
 
             "This points to the next useful hub action."
         );
+
+        this.hudActions.push({
+            x: 105,
+            y: GAME_HEIGHT - 48,
+            radius: 30,
+            callback: () => this.openCodexPanel()
+        });
 
 
         this.createHudTooltipLayer();
@@ -3546,7 +4135,7 @@ class GameScene extends Phaser.Scene {
                         FONT_DISPLAY,
 
                     fontSize:
-                        "22px",
+                        "24px",
 
                     color:
                         "#ffffff"
@@ -3568,6 +4157,18 @@ class GameScene extends Phaser.Scene {
             title,
             description
         );
+
+        this.hudActions.push({
+            x: x - 35,
+            y,
+            radius: 30,
+            callback: texture === "uiValor"
+                ? () => this.openCrankhousePanel()
+                : () => this.walkTo(
+                    this.worldCenter.x,
+                    this.worldCenter.y + 185
+                )
+        });
 
 
         return amount;
@@ -3640,7 +4241,8 @@ class GameScene extends Phaser.Scene {
         texture,
         title,
         description,
-        disabled = false
+        disabled = false,
+        callback = null
     ) {
 
         const bg =
@@ -3730,6 +4332,17 @@ class GameScene extends Phaser.Scene {
             }
         );
 
+        if (!disabled && callback) {
+
+            this.hudActions.push({
+                x,
+                y,
+                radius: 34,
+                callback
+            });
+
+        }
+
 
         this.attachTooltip(
             bg,
@@ -3746,6 +4359,461 @@ class GameScene extends Phaser.Scene {
 
 
         return bg;
+
+    }
+
+
+    walkTo(x, y) {
+
+        this.moveTarget =
+            new Phaser.Math.Vector2(
+                Phaser.Math.Clamp(x, 40, WORLD_SIZE - 40),
+                Phaser.Math.Clamp(y, 40, WORLD_SIZE - 40)
+            );
+
+        this.drawTargetMarker(
+            this.moveTarget.x,
+            this.moveTarget.y
+        );
+
+    }
+
+
+    closeHubPanel() {
+
+        if (this.hubPanel) {
+            this.hubPanel.destroy(true);
+            this.hubPanel = null;
+        }
+
+        this.hubActionZones = [];
+
+    }
+
+
+    openHubPanel(title, subtitle, rows) {
+
+        this.closeHubPanel();
+
+        const root =
+            this.add.container(0, 0)
+                .setDepth(150000);
+
+        root.__blocksWorldInput = true;
+
+        const shade =
+            this.add.rectangle(
+                GAME_WIDTH / 2,
+                GAME_HEIGHT / 2,
+                GAME_WIDTH,
+                GAME_HEIGHT,
+                0x050911,
+                0.76
+            );
+
+        shade.__blocksWorldInput = true;
+
+        this.hubActionZones = [];
+
+        const panel =
+            this.add.graphics();
+
+        panel.fillStyle(0x0d1724, 0.99);
+        panel.fillRoundedRect(42, 325, 636, 630, 28);
+        panel.lineStyle(3, THEME.gold, 0.55);
+        panel.strokeRoundedRect(42, 325, 636, 630, 28);
+        panel.lineStyle(2, 0xffffff, 0.08);
+        panel.lineBetween(68, 446, 652, 446);
+
+        const heading =
+            this.add.text(
+                GAME_WIDTH / 2,
+                365,
+                title,
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "34px",
+                    color: "#fff0a2",
+                    align: "center",
+                    wordWrap: { width: 560 }
+                }
+            )
+            .setOrigin(0.5);
+
+        const detail =
+            this.add.text(
+                GAME_WIDTH / 2,
+                412,
+                subtitle,
+                {
+                    fontFamily: FONT_BODY,
+                    fontSize: "17px",
+                    fontStyle: "bold",
+                    color: "#bdc9d5",
+                    align: "center",
+                    wordWrap: { width: 540 }
+                }
+            )
+            .setOrigin(0.5, 0);
+
+        root.add([
+            shade,
+            panel,
+            heading,
+            detail
+        ]);
+
+        rows.slice(0, 3).forEach((row, index) => {
+
+            const y = 504 + index * 116;
+            const card =
+                this.add.graphics();
+
+            card.fillStyle(
+                row.ready === false
+                    ? 0x241e28
+                    : 0x172638,
+                0.98
+            );
+            card.fillRoundedRect(70, y - 44, 580, 96, 18);
+            card.lineStyle(
+                2,
+                row.ready === false
+                    ? THEME.red
+                    : THEME.cyan,
+                0.28
+            );
+            card.strokeRoundedRect(70, y - 44, 580, 96, 18);
+
+            const titleText =
+                this.add.text(
+                    92,
+                    y - 30,
+                    row.title,
+                    {
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: "22px",
+                        color: row.ready === false
+                            ? "#ffabb3"
+                            : "#eff4e8"
+                    }
+                );
+
+            const descriptionText =
+                this.add.text(
+                    92,
+                    y - 3,
+                    row.description,
+                    {
+                        fontFamily: FONT_BODY,
+                        fontSize: "15px",
+                        fontStyle: "bold",
+                        color: "#aebdca",
+                        wordWrap: { width: 370 },
+                        lineSpacing: 1
+                    }
+                );
+
+            const actionText =
+                this.add.text(
+                    610,
+                    y + 1,
+                    row.action || "OPEN",
+                    {
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: "15px",
+                        color: row.ready === false
+                            ? "#ff9da8"
+                            : "#ffd660"
+                    }
+                )
+                .setOrigin(1, 0.5);
+
+            root.add([
+                card,
+                titleText,
+                descriptionText,
+                actionText
+            ]);
+
+            this.hubActionZones.push({
+                x: 360,
+                y: y + 4,
+                width: 580,
+                height: 96,
+                callback: () => {
+                    if (row.ready === false) {
+                        AudioDirector.playEffect("hit");
+                        this.showHudToast(
+                            row.lockedMessage ||
+                            "You need more Valor for that upgrade."
+                        );
+                        return;
+                    }
+
+                    AudioDirector.playEffect("click");
+                    row.callback?.();
+                }
+            });
+
+        });
+
+        const closeButton =
+            this.add.image(
+                GAME_WIDTH / 2,
+                890,
+                "uiRoundBlue"
+            )
+            .setScale(0.78)
+            ;
+
+        closeButton.__blocksWorldInput = true;
+
+        const closeLabel =
+            this.add.text(
+                GAME_WIDTH / 2,
+                890,
+                "BACK",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "18px",
+                    color: "#ffffff"
+                }
+            )
+            .setOrigin(0.5);
+
+        root.add([
+            closeButton,
+            closeLabel
+        ]);
+
+        this.hubActionZones.push({
+            x: GAME_WIDTH / 2,
+            y: 890,
+            width: 104,
+            height: 72,
+            callback: () => {
+                AudioDirector.playEffect("click");
+                this.closeHubPanel();
+            }
+        });
+
+        this.hudRoot.add(root);
+        this.hubPanel = root;
+
+    }
+
+
+    openCrankhousePanel() {
+
+        const crankLevel =
+            this.saveData.crankLevel || 0;
+
+        const autoLevel =
+            this.saveData.autoCrankLevel || 0;
+
+        const valor =
+            this.saveData.valor || 0;
+
+        const crankCost =
+            1 + Math.floor(crankLevel / 2);
+
+        const autoCost =
+            2 + autoLevel * 2;
+
+        const output =
+            1 + crankLevel;
+
+        const nextAutoSeconds =
+            Math.round(
+                Math.max(
+                    11000,
+                    35000 -
+                    Math.max(0, autoLevel - 1) * 6000
+                ) / 1000
+            );
+
+        this.openHubPanel(
+            "CRANKHOUSE WORKS",
+            `Valor ${valor}  •  Cranks yield ${output} now; the next press level yields ${output + 1}.`,
+            [
+                {
+                    title: `Glimmer Press  •  LV ${crankLevel}/8`,
+                    description:
+                        `Every crank produces ${output} Glimmer now. Upgrade for +1 per click.`,
+                    action:
+                        crankLevel >= 8
+                            ? "MAX"
+                            : `UPGRADE  •  ${crankCost} V`,
+                    ready:
+                        crankLevel >= 8 ||
+                        valor >= crankCost,
+                    lockedMessage:
+                        `Need ${crankCost - valor} more Valor for the Glimmer Press.`,
+                    callback: () => {
+                        if (crankLevel >= 8) {
+                            this.showHudToast(
+                                "The Glimmer Press is fully tuned!"
+                            );
+                            return;
+                        }
+                        this.saveData.valor -= crankCost;
+                        this.saveData.crankLevel =
+                            crankLevel + 1;
+                        persistSave(this.saveData);
+                        AudioDirector.playEffect("upgrade");
+                        this.updateHUD();
+                        this.closeHubPanel();
+                        this.openCrankhousePanel();
+                        this.showHudToast(
+                            `Glimmer Press upgraded • ${output + 1} per crank!`
+                        );
+                    }
+                },
+                {
+                    title: `Clockwork Helper  •  LV ${autoLevel}/5`,
+                    description:
+                        autoLevel === 0
+                            ? "Hire a little helper to make Glimmer while you explore."
+                            : `Adds ${output} Glimmer directly every ${nextAutoSeconds} seconds.`,
+                    action:
+                        autoLevel >= 5
+                            ? "MAX"
+                            : `HIRE  •  ${autoCost} V`,
+                    ready:
+                        autoLevel >= 5 ||
+                        valor >= autoCost,
+                    lockedMessage:
+                        `Need ${autoCost - valor} more Valor to hire the helper.`,
+                    callback: () => {
+                        if (autoLevel >= 5) {
+                            this.showHudToast(
+                                "Every helper station is staffed!"
+                            );
+                            return;
+                        }
+                        this.saveData.valor -= autoCost;
+                        this.saveData.autoCrankLevel =
+                            autoLevel + 1;
+                        persistSave(this.saveData);
+                        this.startAutoCrank();
+                        AudioDirector.playEffect("upgrade");
+                        this.updateHUD();
+                        this.closeHubPanel();
+                        this.openCrankhousePanel();
+                        this.showHudToast(
+                            "Clockwork helper hired!"
+                        );
+                    }
+                },
+                {
+                    title: "How the works work",
+                    description:
+                        "Claim Ghostlots to earn Valor. Spend it here; Glimmer pays Claimrun entry. Pick up loose crank piles by walking into them.",
+                    action: "GOT IT",
+                    callback: () => this.closeHubPanel()
+                }
+            ]
+        );
+
+    }
+
+
+    openCodexPanel() {
+
+        const claimed =
+            this.saveData.unlockedLots.length;
+
+        const nextCost =
+            claimCostForProgress(claimed);
+
+        this.openHubPanel(
+            "PIP'S FIELD NOTES",
+            "Three rules for turning a quiet meadow into a heroic financial mistake.",
+            [
+                {
+                    title: "01  •  CRANK & COLLECT",
+                    description:
+                        "Tap the blue-roofed Crankhouse or press E nearby. Walk into a Glimmer pile to collect its whole value.",
+                    action: "GOT IT",
+                    callback: () => this.closeHubPanel()
+                },
+                {
+                    title: "02  •  CLAIM THE CALLING LOT",
+                    description:
+                        `The nearest locked plot is calling. First entry costs ${nextCost} Glimmer; retries are free until you win.`,
+                    action: "GOT IT",
+                    callback: () => this.closeHubPanel()
+                },
+                {
+                    title: "03  •  MAKE VALOR COUNT",
+                    description:
+                        `You have claimed ${claimed} Ghostlots. Every victory pays Valor for permanent Crankhouse upgrades.`,
+                    action: "LET'S GO",
+                    callback: () => this.closeHubPanel()
+                }
+            ]
+        );
+
+    }
+
+
+    openSettingsPanel() {
+
+        const musicOn =
+            this.saveData.musicEnabled !== false;
+
+        const sfxOn =
+            this.saveData.sfxEnabled !== false;
+
+        this.openHubPanel(
+            "MEADOW SETTINGS",
+            "Music unlocks on your first tap. These preferences are saved on this device.",
+            [
+                {
+                    title: "Meadow music",
+                    description:
+                        "A little procedural chiptune loop, generated locally in your browser.",
+                    action: musicOn ? "ON" : "OFF",
+                    callback: () => {
+                        this.saveData.musicEnabled = !musicOn;
+                        persistSave(this.saveData);
+                        AudioDirector.setMusicEnabled(
+                            this.saveData.musicEnabled
+                        );
+                        this.closeHubPanel();
+                        this.openSettingsPanel();
+                    }
+                },
+                {
+                    title: "Sound effects",
+                    description:
+                        "Cranks, pickups, upgrades, gates and heroic victories.",
+                    action: sfxOn ? "ON" : "OFF",
+                    callback: () => {
+                        this.saveData.sfxEnabled = !sfxOn;
+                        persistSave(this.saveData);
+                        AudioDirector.setPreferences(
+                            this.saveData
+                        );
+                        this.closeHubPanel();
+                        this.openSettingsPanel();
+                    }
+                },
+                {
+                    title: "Camera comfort",
+                    description:
+                        "Reset the world zoom to its default. Scroll or pinch to zoom again.",
+                    action: "RESET ZOOM",
+                    callback: () => {
+                        this.setNullmeadowZoom(1);
+                        this.showHudToast(
+                            "Camera zoom reset."
+                        );
+                    }
+                }
+            ]
+        );
 
     }
 
@@ -4054,7 +5122,92 @@ class GameScene extends Phaser.Scene {
     }
 
 
+    crankOutputAmount() {
+
+        return (
+            1 +
+            this.saveData.crankLevel +
+            Math.floor(this.crankStreak / 5)
+        );
+
+    }
+
+
+    autoCrankInterval() {
+
+        return Math.max(
+            11000,
+            35000 -
+            Math.max(
+                0,
+                this.saveData.autoCrankLevel - 1
+            ) *
+            6000
+        );
+
+    }
+
+
+    startAutoCrank() {
+
+        if (this.autoCrankEvent) {
+            this.autoCrankEvent.remove(false);
+            this.autoCrankEvent = null;
+        }
+
+        if (this.saveData.autoCrankLevel <= 0) {
+            return;
+        }
+
+        this.autoCrankEvent =
+            this.time.addEvent({
+                delay: this.autoCrankInterval(),
+                loop: true,
+                callback: () =>
+                    this.grantPassiveGlimmer()
+            });
+
+    }
+
+
+    grantPassiveGlimmer() {
+
+        const amount =
+            1 +
+            this.saveData.crankLevel;
+
+        this.glimmerOwned += amount;
+        this.saveData.glimmer =
+            this.glimmerOwned;
+
+        persistSave(this.saveData);
+        this.updateHUD();
+        AudioDirector.playEffect("pickup");
+
+        this.floatText(
+            this.worldCenter.x,
+            this.worldCenter.y - 176,
+            `AUTO +${amount}`,
+            "#9fffc1"
+        );
+
+    }
+
+
     generateGlimmer() {
+
+        const now = this.time.now;
+
+        if (now - this.lastCrankAt <= 1900) {
+            this.crankStreak++;
+        } else {
+            this.crankStreak = 0;
+        }
+
+        this.lastCrankAt = now;
+
+        const amount =
+            this.crankOutputAmount();
 
         try {
 
@@ -4066,6 +5219,8 @@ class GameScene extends Phaser.Scene {
             );
 
         } catch (_) {}
+
+        AudioDirector.playEffect("crank");
 
 
         this.tweens.killTweensOf(
@@ -4108,8 +5263,8 @@ class GameScene extends Phaser.Scene {
 
         const distance =
             Phaser.Math.Between(
-                125,
-                230
+                105,
+                180
             );
 
 
@@ -4123,6 +5278,54 @@ class GameScene extends Phaser.Scene {
             this.worldCenter.y +
             Math.sin(angle) *
             distance;
+
+        const activePiles =
+            this.glimmerLoose.filter(
+                pile =>
+                    pile.active &&
+                    !pile.__collected
+            );
+
+        if (activePiles.length >= 14) {
+
+            const pile =
+                activePiles.reduce(
+                    (nearest, candidate) =>
+                        Phaser.Math.Distance.Between(
+                            candidate.x,
+                            candidate.y,
+                            targetX,
+                            targetY
+                        ) <
+                        Phaser.Math.Distance.Between(
+                            nearest.x,
+                            nearest.y,
+                            targetX,
+                            targetY
+                        )
+                            ? candidate
+                            : nearest
+                );
+
+            pile.__value += amount;
+            pile.setScale(
+                Math.min(
+                    0.92,
+                    0.58 +
+                    Math.log2(pile.__value) * 0.045
+                )
+            );
+
+            this.floatText(
+                pile.x,
+                pile.y - 35,
+                `PILE +${amount}`,
+                "#ffe26d"
+            );
+
+            return;
+
+        }
 
 
         const resource =
@@ -4142,6 +5345,8 @@ class GameScene extends Phaser.Scene {
         resource.__collected =
             false;
 
+        resource.__value =
+            amount;
 
         this.glimmerLoose.push(
             resource
@@ -4223,7 +5428,7 @@ class GameScene extends Phaser.Scene {
             this.worldCenter.y -
             120,
 
-            "+1 GLIMMER",
+            `+${amount} GLIMMER`,
 
             "#ffe26d"
 
@@ -4257,6 +5462,7 @@ class GameScene extends Phaser.Scene {
 
         } catch (_) {}
 
+        AudioDirector.playEffect("pickup");
 
         const index =
             this.glimmerLoose
@@ -4274,7 +5480,13 @@ class GameScene extends Phaser.Scene {
         }
 
 
-        this.glimmerOwned += 1;
+        const amount =
+            Math.max(
+                1,
+                Math.floor(resource.__value || 1)
+            );
+
+        this.glimmerOwned += amount;
 
 
         this.saveData.glimmer =
@@ -4292,7 +5504,7 @@ class GameScene extends Phaser.Scene {
         this.floatText(
             this.player.x,
             this.player.y - 105,
-            "+1",
+            `+${amount}`,
             "#fff0a5"
         );
 
@@ -4333,6 +5545,70 @@ class GameScene extends Phaser.Scene {
                     resource.destroy()
 
         });
+
+    }
+
+
+    openFieldCache(cache) {
+
+        if (
+            !cache?.active ||
+            cache.__opened ||
+            !cache.__cacheId
+        ) {
+            return;
+        }
+
+        cache.__opened = true;
+        cache.disableInteractive();
+        cache.setTint(0xffe6a1)
+            .setAlpha(0.78);
+
+        this.tweens.killTweensOf(cache);
+
+        if (cache.__cacheRing) {
+            this.tweens.killTweensOf(
+                cache.__cacheRing
+            );
+            cache.__cacheRing.destroy();
+            cache.__cacheRing = null;
+        }
+
+        const reward =
+            4 +
+            Math.floor(
+                this.saveData.unlockedLots.length / 3
+            );
+
+        this.saveData.openedCaches.push(
+            cache.__cacheId
+        );
+
+        this.glimmerOwned += reward;
+        this.saveData.glimmer =
+            this.glimmerOwned;
+
+        persistSave(this.saveData);
+        this.updateHUD();
+        AudioDirector.playEffect("upgrade");
+
+        try {
+            this.sound.play("confirm", {
+                volume: 0.22,
+                rate: 1.12
+            });
+        } catch (_) {}
+
+        this.floatText(
+            cache.x,
+            cache.y - 54,
+            `CACHE +${reward}`,
+            "#fff0a2"
+        );
+
+        this.showHudToast(
+            `Meadow cache found • +${reward} Glimmer`
+        );
 
     }
 
@@ -4748,6 +6024,22 @@ class GameScene extends Phaser.Scene {
             )
         );
 
+        if (this.hubStatusText) {
+            this.hubStatusText.setText(
+                `CRANKHOUSE • LV ${this.saveData.crankLevel || 0}` +
+                (
+                    this.saveData.autoCrankLevel
+                        ? ` • AUTO ${this.saveData.autoCrankLevel}`
+                        : ""
+                )
+            );
+        }
+
+        if (this.crankhouseHint) {
+            this.crankhouseHint.setText(
+                `TAP OR PRESS E • +${this.crankOutputAmount()}`
+            );
+        }
 
         if (
             this.activeGhostlot &&
@@ -4863,6 +6155,8 @@ class GameScene extends Phaser.Scene {
 
     update() {
 
+        this.updateWorldAtmosphere();
+
         /*
             Cheap insurance in case anything else changes
             the world-camera zoom later.
@@ -4871,6 +6165,29 @@ class GameScene extends Phaser.Scene {
 
         const body =
             this.player.body;
+
+        if (
+            this.crankKey &&
+            Phaser.Input.Keyboard.JustDown(
+                this.crankKey
+            )
+        ) {
+            const nearCrankhouse =
+                Phaser.Math.Distance.Between(
+                    this.player.x,
+                    this.player.y,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < 310;
+
+            if (nearCrankhouse) {
+                this.generateGlimmer();
+            } else {
+                this.showHudToast(
+                    "Walk closer to the Crankhouse to crank it."
+                );
+            }
+        }
 
 
         const keyboardX =
@@ -5051,6 +6368,23 @@ class GameScene extends Phaser.Scene {
                 this.player.depth + 20
             );
 
+        for (const cache of this.fieldCaches) {
+
+            if (
+                cache.active &&
+                !cache.__opened &&
+                Phaser.Math.Distance.Between(
+                    this.player.x,
+                    this.player.y,
+                    cache.x,
+                    cache.y
+                ) < 82
+            ) {
+                this.openFieldCache(cache);
+            }
+
+        }
+
 
         for (
             const resource
@@ -5230,66 +6564,65 @@ class ClaimRunScene extends Phaser.Scene {
                 1
             );
 
+        AudioDirector.setPreferences(
+            this.saveData
+        );
+
+        this.input.once(
+            "pointerdown",
+            () => AudioDirector.unlock(this.saveData)
+        );
 
         this.totalEnemies =
-            22 +
-            this.difficulty * 6 +
-            Math.floor(
-                Math.pow(
-                    this.difficulty,
-                    1.12
-                )
-                *
-                1.2
-            );
+            8 +
+            (this.difficulty - 1) * 4 +
+            Math.max(
+                0,
+                this.difficulty - 3
+            ) * 2;
 
 
         this.totalGatePairs =
-            3 +
-            Math.floor(
-                (
-                    this.difficulty -
-                    1
+            Math.min(
+                12,
+                1 +
+                Math.floor(
+                    (this.difficulty - 1) * 0.62
                 )
-                *
-                0.65
             );
 
 
         this.enemySpawnDelay =
             Math.max(
-                245,
+                400,
 
-                570 -
+                1220 -
                 (
                     this.difficulty -
                     1
                 )
                 *
-                22
+                72
             );
 
 
         this.enemyBaseSpeed =
-            70 +
+            55 +
             (
                 this.difficulty -
                 1
             )
             *
-            5.2;
+            6;
 
 
         this.enemyBaseHp =
-            1 +
-            Math.floor(
-                (
-                    this.difficulty -
-                    1
-                )
-                /
-                4
-            );
+            this.difficulty < 5
+                ? 1
+                : 2 +
+                  Math.floor(
+                      (this.difficulty - 5) / 4
+                  );
 
 
         this.gateSpeed =
@@ -5327,7 +6660,10 @@ class ClaimRunScene extends Phaser.Scene {
         this.breachedEnemies = 0;
 
 
-        this.integrityMax = 5;
+        this.integrityMax =
+            this.difficulty < 3
+                ? 7
+                : 5;
 
         this.integrity =
             this.integrityMax;
@@ -6040,7 +7376,7 @@ class ClaimRunScene extends Phaser.Scene {
                     FONT_TECH,
 
                 fontSize:
-                    "12px",
+                    "16px",
 
                 fontStyle:
                     "bold",
@@ -6063,7 +7399,7 @@ class ClaimRunScene extends Phaser.Scene {
                         FONT_TECH,
 
                     fontSize:
-                        "12px",
+                        "15px",
 
                     fontStyle:
                         "bold",
@@ -6111,7 +7447,7 @@ class ClaimRunScene extends Phaser.Scene {
                         FONT_DISPLAY,
 
                     fontSize:
-                        "18px",
+                        "23px",
 
                     color:
                         "#ffffff",
@@ -6138,7 +7474,7 @@ class ClaimRunScene extends Phaser.Scene {
                         FONT_TECH,
 
                     fontSize:
-                        "12px",
+                        "15px",
 
                     fontStyle:
                         "bold",
@@ -6168,7 +7504,7 @@ class ClaimRunScene extends Phaser.Scene {
                         FONT_TECH,
 
                     fontSize:
-                        "12px",
+                        "15px",
 
                     fontStyle:
                         "bold",
@@ -6227,14 +7563,18 @@ class ClaimRunScene extends Phaser.Scene {
             GAME_WIDTH / 2,
             1232,
 
-            "AUTO-FIRE • PUMP GREEN • AVOID RED • BULLETS PASS THROUGH GATES",
+            this.difficulty < 4
+                ? "DRAG TO AIM • AUTO-FIRE • HOLD THE FENCE"
+                : this.difficulty < 6
+                    ? "RIFT WALKERS DRIFT • PUMP GREEN GATES"
+                    : "BOSS INBOUND • TARGET THE GIANT • PICK A GATE",
 
             {
                 fontFamily:
                     FONT_TECH,
 
                 fontSize:
-                    "10px",
+                    "14px",
 
                 fontStyle:
                     "bold",
@@ -6246,6 +7586,31 @@ class ClaimRunScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(10001);
 
+        this.pauseButton =
+            this.add.image(
+                660,
+                1232,
+                "uiRoundBlue"
+            )
+            .setScale(0.48)
+            .setDepth(10002)
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        this.pauseButtonText =
+            this.add.text(
+                660,
+                1232,
+                "Ⅱ",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "19px",
+                    color: "#ffffff"
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(10003);
 
         this.updateChallengeHUD();
 
@@ -6283,9 +7648,7 @@ class ClaimRunScene extends Phaser.Scene {
         const setTarget =
             pointer => {
 
-                if (
-                    this.challengeOver
-                ) {
+                if (this.challengeOver || this.challengePaused) {
                     return;
                 }
 
@@ -6302,7 +7665,39 @@ class ClaimRunScene extends Phaser.Scene {
 
         this.input.on(
             "pointerdown",
-            setTarget
+            pointer => {
+
+                if (this.challengePaused) {
+
+                    const action =
+                        this.pauseActionZones
+                            ?.find(zone =>
+                                Math.abs(pointer.x - zone.x) <=
+                                    zone.width / 2 &&
+                                Math.abs(pointer.y - zone.y) <=
+                                    zone.height / 2
+                            );
+
+                    action?.callback();
+                    return;
+
+                }
+
+                if (
+                    Phaser.Math.Distance.Between(
+                        pointer.x,
+                        pointer.y,
+                        660,
+                        1232
+                    ) < 34
+                ) {
+                    this.togglePause();
+                    return;
+                }
+
+                setTarget(pointer);
+
+            }
         );
 
 
@@ -6311,9 +7706,7 @@ class ClaimRunScene extends Phaser.Scene {
 
             pointer => {
 
-                if (
-                    pointer.isDown
-                ) {
+                if (pointer.isDown && !this.challengePaused) {
 
                     setTarget(
                         pointer
@@ -6323,6 +7716,163 @@ class ClaimRunScene extends Phaser.Scene {
 
             }
         );
+
+        this.input.keyboard.on(
+            "keydown",
+            event => {
+                if (
+                    event.code === "Escape" ||
+                    event.code === "KeyP"
+                ) {
+                    this.togglePause();
+                }
+            }
+        );
+
+    }
+
+
+    togglePause() {
+
+        if (this.challengeOver) {
+            return;
+        }
+
+        if (this.challengePaused) {
+
+            this.challengePaused = false;
+            this.time.paused = false;
+            this.physics.resume();
+
+            if (this.pauseCard) {
+                this.pauseCard.destroy(true);
+                this.pauseCard = null;
+            }
+
+            return;
+        }
+
+        this.challengePaused = true;
+        this.physics.pause();
+        this.time.paused = true;
+
+        const panel =
+            this.add.container(0, 0)
+                .setDepth(20000);
+
+        const shade =
+            this.add.rectangle(
+                GAME_WIDTH / 2,
+                GAME_HEIGHT / 2,
+                GAME_WIDTH,
+                GAME_HEIGHT,
+                0x050911,
+                0.78
+            );
+
+        const background =
+            this.add.graphics();
+
+        background.fillStyle(0x111d2b, 0.99);
+        background.fillRoundedRect(90, 430, 540, 420, 28);
+        background.lineStyle(3, THEME.gold, 0.60);
+        background.strokeRoundedRect(90, 430, 540, 420, 28);
+
+        panel.add([
+            shade,
+            background,
+            this.add.text(
+                GAME_WIDTH / 2,
+                492,
+                "TAKE A BREATHER",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "38px",
+                    color: "#fff0a2"
+                }
+            ).setOrigin(0.5),
+            this.add.text(
+                GAME_WIDTH / 2,
+                548,
+                "The skeletons can wait.",
+                {
+                    fontFamily: FONT_BODY,
+                    fontSize: "18px",
+                    fontStyle: "bold",
+                    color: "#bdc9d5"
+                }
+            ).setOrigin(0.5)
+        ]);
+
+        const addPauseButton = (y, label, callback) => {
+
+            const button =
+                this.add.graphics();
+
+            button.fillStyle(0x1d3650, 1);
+            button.fillRoundedRect(
+                190,
+                y - 34,
+                340,
+                68,
+                18
+            );
+            button.lineStyle(2, THEME.cyan, 0.58);
+            button.strokeRoundedRect(
+                190,
+                y - 34,
+                340,
+                68,
+                18
+            );
+
+            const text =
+                this.add.text(
+                    GAME_WIDTH / 2,
+                    y,
+                    label,
+                    {
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: label.length > 12
+                            ? "16px"
+                            : "20px",
+                        color: "#ffffff"
+                    }
+                )
+                .setOrigin(0.5);
+
+            panel.add([button, text]);
+
+            this.pauseActionZones.push({
+                x: GAME_WIDTH / 2,
+                y,
+                width: 340,
+                height: 88,
+                callback
+            });
+
+        };
+
+        this.pauseActionZones = [];
+
+        addPauseButton(
+            650,
+            "RESUME",
+            () => this.togglePause()
+        );
+
+        addPauseButton(
+            760,
+            "RETREAT TO MEADOW",
+            () => {
+                this.challengePaused = false;
+                this.time.paused = false;
+                this.physics.resume();
+                this.scene.start("GameScene");
+            }
+        );
+
+        this.pauseCard = panel;
 
     }
 
@@ -6463,6 +8013,7 @@ class ClaimRunScene extends Phaser.Scene {
 
 
         if (
+            this.difficulty >= 4 &&
             Math.random()
             <
             Math.min(
@@ -6480,6 +8031,7 @@ class ClaimRunScene extends Phaser.Scene {
 
 
         if (
+            this.difficulty >= 6 &&
             Math.random()
             <
             Math.min(
@@ -6504,6 +8056,7 @@ class ClaimRunScene extends Phaser.Scene {
 
 
         if (
+            this.difficulty >= 9 &&
             Math.random()
             <
             Math.min(
@@ -6610,6 +8163,10 @@ class ClaimRunScene extends Phaser.Scene {
 
         this.spawnedEnemies++;
 
+        const boss =
+            this.difficulty >= 6 &&
+            this.spawnedEnemies === this.totalEnemies;
+
 
         const progress =
             this.spawnedEnemies /
@@ -6625,29 +8182,25 @@ class ClaimRunScene extends Phaser.Scene {
 
 
         const eliteChance =
-            Math.min(
-                0.34,
-
-                0.05 +
-                this.difficulty *
-                0.022 +
-                progress *
-                0.08
-            );
+            this.difficulty < 4
+                ? 0
+                : Math.min(
+                    0.34,
+                    0.025 +
+                    (this.difficulty - 4) * 0.035 +
+                    progress * 0.08
+                );
 
 
         const elite =
-            Math.random() <
-            eliteChance;
+            boss ||
+            Math.random() < eliteChance;
 
 
         const hp =
-            this.enemyBaseHp +
-            (
-                elite
-                    ? 1
-                    : 0
-            );
+            boss
+                ? 5 + Math.floor((this.difficulty - 6) / 2)
+                : this.enemyBaseHp + (elite ? 1 : 0);
 
 
         const speed =
@@ -6683,9 +8236,11 @@ class ClaimRunScene extends Phaser.Scene {
                 0
             )
             .setScale(
-                elite
-                    ? 2.55
-                    : 2.20
+                boss
+                    ? 3.65
+                    : elite
+                        ? 2.55
+                        : 2.20
             )
             .setDepth(700);
 
@@ -6728,12 +8283,79 @@ class ClaimRunScene extends Phaser.Scene {
         enemy.__elite =
             elite;
 
+        enemy.__boss =
+            boss;
+
+        enemy.__drifter =
+            this.difficulty >= 4 &&
+            !boss &&
+            this.spawnedEnemies % 4 === 0;
+
+        if (boss) {
+
+            enemy.__bossLabel =
+                this.add.text(
+                    x,
+                    96,
+                    "MEADOW TITAN",
+                    {
+                        fontFamily: FONT_TECH,
+                        fontSize: "13px",
+                        fontStyle: "bold",
+                        color: "#ff8a98",
+                        stroke: "#111722",
+                        strokeThickness: 4
+                    }
+                )
+                .setOrigin(0.5)
+                .setDepth(705);
+
+            enemy.__bossHealthBg =
+                this.add.rectangle(
+                    x - 52,
+                    112,
+                    104,
+                    8,
+                    0x29151d,
+                    0.95
+                )
+                .setOrigin(0, 0.5)
+                .setDepth(706);
+
+            enemy.__bossHealth =
+                this.add.rectangle(
+                    x - 52,
+                    112,
+                    104,
+                    5,
+                    0xff6879,
+                    1
+                )
+                .setOrigin(0, 0.5)
+                .setDepth(707);
+
+        }
+
+        if (enemy.__drifter) {
+            enemy.setCollideWorldBounds(true);
+            enemy.setBounceX(1);
+            enemy.setVelocityX(
+                Phaser.Math.Between(55, 92) *
+                (Math.random() < 0.5 ? -1 : 1)
+            );
+            enemy.setTint(0x9eb5ff);
+        }
+
+        if (boss) {
+            enemy.setTint(0xff697a);
+        }
+
 
         if (elite) {
 
-            enemy.setTint(
-                0xffd870
-            );
+            if (!boss && !enemy.__drifter) {
+                enemy.setTint(0xffd870);
+            }
 
         }
 
@@ -7684,6 +9306,9 @@ class ClaimRunScene extends Phaser.Scene {
 
         } catch (_) {}
 
+        AudioDirector.playEffect(
+            positive ? "gate" : "hit"
+        );
 
         this.cameras.main.shake(
 
@@ -7958,6 +9583,15 @@ class ClaimRunScene extends Phaser.Scene {
 
         enemy.__hp--;
 
+        if (enemy.__bossHealth?.active) {
+            enemy.__bossHealth.setScaleX(
+                Math.max(
+                    0,
+                    enemy.__hp / enemy.__maxHp
+                )
+            );
+        }
+
 
         try {
 
@@ -7978,6 +9612,8 @@ class ClaimRunScene extends Phaser.Scene {
             );
 
         } catch (_) {}
+
+        AudioDirector.playEffect("hit");
 
 
         enemy.setTintFill(
@@ -8033,6 +9669,9 @@ class ClaimRunScene extends Phaser.Scene {
                     : 0xdde4ef
             );
 
+            enemy.__bossLabel?.destroy();
+            enemy.__bossHealthBg?.destroy();
+            enemy.__bossHealth?.destroy();
 
             enemy.destroy();
 
@@ -8070,6 +9709,10 @@ class ClaimRunScene extends Phaser.Scene {
             0xff5964
         );
 
+        enemy.__bossLabel?.destroy();
+        enemy.__bossHealthBg?.destroy();
+        enemy.__bossHealth?.destroy();
+
 
         enemy.destroy();
 
@@ -8096,6 +9739,8 @@ class ClaimRunScene extends Phaser.Scene {
             );
 
         } catch (_) {}
+
+        AudioDirector.playEffect("breach");
 
 
         this.cameras.main.shake(
@@ -8583,6 +10228,8 @@ class ClaimRunScene extends Phaser.Scene {
 
         if (won) {
 
+            AudioDirector.playEffect("win");
+
             if (
                 !this.saveData
                     .unlockedLots
@@ -8646,7 +10293,6 @@ class ClaimRunScene extends Phaser.Scene {
                 );
 
             } catch (_) {}
-
 
             this.add.text(
                 GAME_WIDTH / 2,
@@ -8918,7 +10564,8 @@ class ClaimRunScene extends Phaser.Scene {
     ) {
 
         if (
-            this.challengeOver
+            this.challengeOver ||
+            this.challengePaused
         ) {
             return;
         }
@@ -9046,6 +10693,28 @@ class ClaimRunScene extends Phaser.Scene {
 
                 this.breachEnemy(
                     enemy
+                );
+
+            }
+
+            if (
+                enemy.active &&
+                enemy.__bossLabel?.active
+            ) {
+
+                enemy.__bossLabel.setPosition(
+                    enemy.x,
+                    enemy.y - 60
+                );
+
+                enemy.__bossHealthBg.setPosition(
+                    enemy.x - 52,
+                    enemy.y - 42
+                );
+
+                enemy.__bossHealth.setPosition(
+                    enemy.x - 52,
+                    enemy.y - 42
                 );
 
             }
@@ -9245,13 +10914,13 @@ const config = {
         "#718955",
 
     pixelArt:
-        true,
-
-    antialias:
         false,
 
-    roundPixels:
+    antialias:
         true,
+
+    roundPixels:
+        false,
 
 
     physics: {
@@ -9432,6 +11101,30 @@ async function loadGameFonts() {
 
 
 async function bootGame() {
+
+    if (
+        typeof document !== "undefined" &&
+        document.head &&
+        !document.getElementById("nullmeadow-render-style")
+    ) {
+        const style =
+            document.createElement("style");
+
+        style.id = "nullmeadow-render-style";
+        style.textContent = `
+            html, body {
+                background:
+                    radial-gradient(ellipse at center,
+                        #273b38 0%,
+                        #121a22 72%);
+            }
+            #game-container canvas {
+                image-rendering: auto !important;
+            }
+        `;
+
+        document.head.appendChild(style);
+    }
 
     await loadGameFonts();
 
