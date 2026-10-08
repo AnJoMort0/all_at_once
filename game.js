@@ -1,6 +1,6 @@
 /*
 ===============================================================================
-NULLMEADOW — PROJECT CONTRACT + CANON — v0.8 "DUSK & MOONPOND"
+NULLMEADOW — PROJECT CONTRACT + CANON — v0.9 "EVERYWHERE"
 ===============================================================================
 
 DEVELOPMENT RULES
@@ -53,6 +53,14 @@ CURRENT WORLD CANON
 - Moonpond: an intermittent watery anomaly. It offers three casts per manifestation;
   catches pay existing currencies instead of adding another wallet resource. Mist,
   drizzle and night can improve the catch table.
+- The Backward Door: after the first successful Riftfall, a permanent black gate appears.
+  It leads OUT of Nullmeadow into Hollowroad, a room-by-room counter-invasion dungeon run.
+  Hollowroad is intentionally another genre: action dungeon crawl + roguelite room upgrades,
+  treasure choices, an orc gatekeeper boss and persistent relic rewards.
+- Fatehouse: a unique settlement building that opens Runehand, a turn-based card duel.
+  Runehand reads enemy intent, spends Resolve on cards, and pays a premium daily win reward.
+- Persistent relics from Hollowroad are cross-game modifiers; one genre should increasingly
+  feed another rather than keeping every minigame in a sealed economy.
 - Riftglass: purple kill currency physically dropped by enemies during Riftfall. It is
   spent to construct buildings on claimed Ghostlots.
 - Dawnseals: rare gold victory currency earned by surviving a full Riftfall. It powers
@@ -210,7 +218,14 @@ function defaultSave() {
         moonpondCycleKey: "",
         moonpondCastsUsed: 0,
         pondCatches: 0,
-        pondRareCatches: 0
+        pondRareCatches: 0,
+        hollowRuns: 0,
+        hollowWins: 0,
+        hollowBossKills: 0,
+        relics: [],
+        fateWins: 0,
+        fateLosses: 0,
+        fateLastRewardDay: -1
     };
 
 }
@@ -240,6 +255,15 @@ function ensureMetaState(save) {
     save.invasionRuns = Math.max(0, Math.floor(Number(save.invasionRuns) || 0));
     save.invasionWins = Math.max(0, Math.floor(Number(save.invasionWins) || 0));
     save.invasionKills = Math.max(0, Math.floor(Number(save.invasionKills) || 0));
+    save.hollowRuns = Math.max(0, Math.floor(Number(save.hollowRuns) || 0));
+    save.hollowWins = Math.max(0, Math.floor(Number(save.hollowWins) || 0));
+    save.hollowBossKills = Math.max(0, Math.floor(Number(save.hollowBossKills) || 0));
+    save.fateWins = Math.max(0, Math.floor(Number(save.fateWins) || 0));
+    save.fateLosses = Math.max(0, Math.floor(Number(save.fateLosses) || 0));
+    save.fateLastRewardDay = Math.floor(Number(save.fateLastRewardDay));
+    if (!Number.isFinite(save.fateLastRewardDay)) save.fateLastRewardDay = -1;
+    if (!Array.isArray(save.relics)) save.relics = [];
+    save.relics = [...new Set(save.relics.filter(value => typeof value === "string"))];
 
     const rawClock = Number(save.meadowClock);
     save.meadowClock =
@@ -281,7 +305,9 @@ function ensureMetaState(save) {
         ["riftTempo", 5],
         ["longstep", 5],
         ["ironPulse", 3],
-        ["gravemagnet", 4]
+        ["gravemagnet", 4],
+        ["roadsteel", 4],
+        ["coldRead", 3]
     ]) {
         save.tech[key] = Phaser.Math.Clamp(
             Math.floor(Number(save.tech[key]) || 0),
@@ -330,6 +356,33 @@ const BOUNTY_DEFS = [
         type: "win",
         target: 1,
         reward: { dawnseals: 1 }
+    },
+    {
+        id: "wrong-way-shift",
+        title: "WRONG-WAY SHIFT",
+        description: "Clear one Hollowroad counter-invasion.",
+        type: "hollow",
+        target: 1,
+        reward: { riftglass: 70, dawnseals: 1 },
+        eligible: save => (save.invasionWins || 0) >= 1
+    },
+    {
+        id: "read-the-house",
+        title: "READ THE HOUSE",
+        description: "Win two Runehand duels.",
+        type: "fate",
+        target: 2,
+        reward: { riftglass: 62 },
+        eligible: save => hasBuildingInSave(save, "fatehouse")
+    },
+    {
+        id: "three-lines-wet",
+        title: "THREE LINES WET",
+        description: "Land three Moonpond catches.",
+        type: "pond",
+        target: 3,
+        reward: { riftglass: 48 },
+        eligible: save => (save.pondCatches || 0) >= 1 || (save.meadowDay || 0) >= 1
     }
 ];
 
@@ -339,7 +392,13 @@ function ensureRotatingBounty(save) {
     ensureMetaState(save);
 
     const cycle = Math.floor(Date.now() / 86400000);
-    const definition = BOUNTY_DEFS[Math.abs(cycle) % BOUNTY_DEFS.length];
+    const eligible =
+        BOUNTY_DEFS.filter(definition =>
+            typeof definition.eligible !== "function" ||
+            definition.eligible(save)
+        );
+    const pool = eligible.length ? eligible : BOUNTY_DEFS.slice(0, 3);
+    const definition = pool[Math.abs(cycle) % pool.length];
 
     if (!save.bounty || save.bounty.cycle !== cycle || save.bounty.id !== definition.id) {
         save.bounty = {
@@ -965,6 +1024,21 @@ const ASSETS = {
     riftReliquary:
         "assets/images/environment/buildings/tiny_swords/Black Buildings/Tower.png",
 
+    hollowDoor:
+        "assets/images/environment/buildings/tiny_swords/Black Buildings/Castle.png",
+
+    dungeonTiles:
+        "assets/images/tilesets/2d_pixel_dungeon/Dungeon_Tileset_at.png",
+
+    dungeonChest:
+        "assets/images/environment/decorations/cute_fantasy/Chest.png",
+
+    hollowOrcWalk:
+        "assets/images/spritesheets/characters/tiny_rpg_soldier_orc/Orc/Orc with shadows/Orc_Walk.png",
+
+    hollowOrcAttack:
+        "assets/images/spritesheets/characters/tiny_rpg_soldier_orc/Orc/Orc with shadows/Orc_Attack01.png",
+
     riftGlassIcon:
         "assets/images/icons/raven_fantasy_icons/64x64/fc166.png",
 
@@ -998,6 +1072,9 @@ const ASSETS = {
 
     buildingCloister:
         "assets/images/environment/buildings/tiny_swords/Yellow Buildings/Monastery.png",
+
+    buildingFate:
+        "assets/images/environment/buildings/tiny_swords/Purple Buildings/Tower.png",
 
 
     uiRoundBlue:
@@ -1065,7 +1142,22 @@ const ASSETS = {
         "assets/audio/sfx/environment/ambient_wind.wav",
 
     cacheOpen:
-        "assets/audio/sfx/materials/wood_small_gather.wav"
+        "assets/audio/sfx/materials/wood_small_gather.wav",
+
+    dungeonDoorSfx:
+        "assets/audio/sfx/environment/door_open.wav",
+
+    swordSliceSfx:
+        "assets/audio/sfx/weapons/sword_slice.wav",
+
+    heartCollectSfx:
+        "assets/audio/sfx/items/heart_collect.wav",
+
+    cardDrawSfx:
+        "assets/audio/sfx/card_and_board/card_draw_1.wav",
+
+    diceRollSfx:
+        "assets/audio/sfx/card_and_board/dice_roll_1.wav"
 
 };
 
@@ -1163,6 +1255,16 @@ const BUILDING_DEFS = {
         cost: 40,
         repeatCost: 22,
         description: "Adds one monk; monks periodically restore Pip during Riftfall."
+    },
+
+    fatehouse: {
+        name: "Fatehouse",
+        short: "RUNEHAND",
+        texture: "buildingFate",
+        scale: 0.58,
+        unique: true,
+        cost: 125,
+        description: "Opens Runehand: a turn-based card duel with a once-per-day premium payout."
     }
 
 };
@@ -1217,6 +1319,27 @@ const ACHIEVEMENT_DEFS = [
         description: "Land a rare Moonpond catch.",
         test: save => (save.pondRareCatches || 0) >= 1,
         reward: { dawnseals: 2 }
+    },
+    {
+        id: "wrong-way-home",
+        title: "WRONG WAY HOME",
+        description: "Clear Hollowroad and return from the enemy side.",
+        test: save => (save.hollowWins || 0) >= 1,
+        reward: { dawnseals: 2, riftglass: 120 }
+    },
+    {
+        id: "three-relics",
+        title: "POCKET MUSEUM",
+        description: "Bring three permanent relics back from Hollowroad.",
+        test: save => (save.relics || []).length >= 3,
+        reward: { dawnseals: 3 }
+    },
+    {
+        id: "stacked-deck",
+        title: "STACKED DECK",
+        description: "Win your first Runehand duel at the Fatehouse.",
+        test: save => (save.fateWins || 0) >= 1,
+        reward: { riftglass: 95 }
     }
 ];
 
@@ -1252,6 +1375,22 @@ const TECH_DEFS = [
         description: "Riftglass pickup radius increases by 12 per level.",
         sealCosts: [3, 6, 10, 15],
         glassCosts: [90, 180, 320, 500]
+    },
+    {
+        key: "roadsteel",
+        title: "Roadsteel",
+        max: 4,
+        description: "Hollowroad gains reach and movement each level; levels 2 and 4 add sword damage.",
+        sealCosts: [4, 8, 13, 20],
+        glassCosts: [150, 310, 540, 860]
+    },
+    {
+        key: "coldRead",
+        title: "Cold Read",
+        max: 3,
+        description: "Runehand starts tougher: +2 HP and +1 opening Block per level.",
+        sealCosts: [5, 10, 18],
+        glassCosts: [190, 420, 780]
     }
 ];
 
@@ -1285,10 +1424,14 @@ class GameScene extends Phaser.Scene {
 
         this.returnFromInvasion = Boolean(data?.returnFromInvasion);
         this.returnFromMoonpond = Boolean(data?.returnFromMoonpond);
+        this.returnFromHollowroad = Boolean(data?.returnFromHollowroad);
+        this.returnFromRunehand = Boolean(data?.returnFromRunehand);
 
         const returningFromSideGame =
             this.returnFromInvasion ||
-            this.returnFromMoonpond;
+            this.returnFromMoonpond ||
+            this.returnFromHollowroad ||
+            this.returnFromRunehand;
 
         this.returnSpawn =
             returningFromSideGame &&
@@ -1446,6 +1589,7 @@ class GameScene extends Phaser.Scene {
 
         for (const [key, source] of [
             ["riftReliquary", ASSETS.riftReliquary],
+            ["hollowDoor", ASSETS.hollowDoor],
             ["riftGlassIcon", ASSETS.riftGlassIcon],
             ["dawnSealIcon", ASSETS.dawnSealIcon],
             ["buildingLaurel", ASSETS.buildingLaurel],
@@ -1456,7 +1600,8 @@ class GameScene extends Phaser.Scene {
             ["buildingWarroom", ASSETS.buildingWarroom],
             ["buildingBowyer", ASSETS.buildingBowyer],
             ["buildingPikehouse", ASSETS.buildingPikehouse],
-            ["buildingCloister", ASSETS.buildingCloister]
+            ["buildingCloister", ASSETS.buildingCloister],
+            ["buildingFate", ASSETS.buildingFate]
         ]) {
             this.load.image(key, source);
         }
@@ -1918,6 +2063,8 @@ class GameScene extends Phaser.Scene {
         this.createRiftReliquary();
 
         this.createMoonpond();
+
+        this.createHollowroadGate();
 
         this.createScenery();
 
@@ -3832,6 +3979,12 @@ class GameScene extends Phaser.Scene {
             }
         }
 
+        if (buildingKey === "fatehouse") {
+            if ((this.saveData.fateLastRewardDay ?? -1) !== this.meadowDay) {
+                return { texture: "uiCrossed" };
+            }
+        }
+
         return null;
 
     }
@@ -4387,6 +4540,300 @@ class GameScene extends Phaser.Scene {
     }
 
 
+    createHollowroadGate() {
+
+        this.hollowroadGate = null;
+        this.hollowroadPoint = null;
+        this.hollowroadPrompt = null;
+
+        if ((this.saveData.invasionWins || 0) < 1) {
+            return;
+        }
+
+        const candidates = [
+            { x: 360, y: 390 },
+            { x: WORLD_SIZE - 360, y: 410 },
+            { x: 390, y: WORLD_SIZE - 390 },
+            { x: WORLD_SIZE - 390, y: WORLD_SIZE - 390 },
+            { x: WORLD_SIZE / 2 - 760, y: WORLD_SIZE / 2 + 650 },
+            { x: WORLD_SIZE / 2 + 760, y: WORLD_SIZE / 2 - 650 }
+        ];
+
+        const offset =
+            ((this.saveData.hollowWins || 0) + this.meadowDay) %
+            candidates.length;
+
+        const ordered =
+            candidates.slice(offset)
+                .concat(candidates.slice(0, offset));
+
+        const isClear = point => {
+            if (
+                Phaser.Math.Distance.Between(
+                    point.x,
+                    point.y,
+                    this.worldCenter.x,
+                    this.worldCenter.y
+                ) < 470
+            ) {
+                return false;
+            }
+
+            if (
+                this.ghostlots?.some(lot =>
+                    Phaser.Math.Distance.Between(
+                        point.x,
+                        point.y,
+                        lot.x,
+                        lot.y
+                    ) < 210
+                )
+            ) {
+                return false;
+            }
+
+            if (
+                this.riftReliquaryPoint &&
+                Phaser.Math.Distance.Between(
+                    point.x,
+                    point.y,
+                    this.riftReliquaryPoint.x,
+                    this.riftReliquaryPoint.y
+                ) < 310
+            ) {
+                return false;
+            }
+
+            if (
+                this.moonpondPoint &&
+                Phaser.Math.Distance.Between(
+                    point.x,
+                    point.y,
+                    this.moonpondPoint.x,
+                    this.moonpondPoint.y
+                ) < 310
+            ) {
+                return false;
+            }
+
+            return true;
+        };
+
+        const point =
+            ordered.find(isClear) ||
+            { x: 360, y: 390 };
+
+        this.add.ellipse(
+            point.x,
+            point.y + 72,
+            190,
+            70,
+            0x160b19,
+            0.35
+        )
+        .setDepth(point.y - 2);
+
+        const gate =
+            this.add.image(
+                point.x,
+                point.y,
+                "hollowDoor"
+            )
+            .setScale(0.72)
+            .setDepth(point.y + 2)
+            .setInteractive({ useHandCursor: true });
+
+        gate.__blocksWorldInput = true;
+
+        const aura =
+            this.add.image(
+                point.x,
+                point.y - 24,
+                "riftGlassIcon"
+            )
+            .setScale(0.48)
+            .setTint(0xd6a2ff)
+            .setAlpha(0.56)
+            .setDepth(point.y + 3);
+
+        this.tweens.add({
+            targets: aura,
+            y: point.y - 42,
+            alpha: 0.90,
+            scaleX: 0.58,
+            scaleY: 0.58,
+            duration: 1250,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut"
+        });
+
+        const label =
+            this.add.text(
+                point.x,
+                point.y - 150,
+                "THE BACKWARD DOOR",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "22px",
+                    color: "#f1d8ff",
+                    stroke: "#170d1d",
+                    strokeThickness: 6
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(point.y + 4);
+
+        const record =
+            this.add.text(
+                point.x,
+                point.y + 116,
+                `HOLLOWROAD • CLEARS ${this.saveData.hollowWins || 0} • RELICS ${(this.saveData.relics || []).length}/4`,
+                {
+                    fontFamily: FONT_TECH,
+                    fontSize: "12px",
+                    fontStyle: "bold",
+                    color: "#cbb4da",
+                    stroke: "#170d1d",
+                    strokeThickness: 4
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(point.y + 4);
+
+        const prompt =
+            this.add.container(
+                point.x,
+                point.y + 178
+            )
+            .setDepth(50002)
+            .setVisible(false);
+
+        const promptButton =
+            this.add.image(0, 0, "uiRoundRed")
+                .setScale(0.70)
+                .setInteractive({ useHandCursor: true });
+
+        const promptIcon =
+            this.add.image(0, -2, "uiSword")
+                .setScale(0.36);
+
+        const promptText =
+            this.add.text(
+                0,
+                47,
+                "COUNTERATTACK",
+                {
+                    fontFamily: FONT_TECH,
+                    fontSize: "12px",
+                    fontStyle: "bold",
+                    color: "#ffe7ff",
+                    stroke: "#160b18",
+                    strokeThickness: 4
+                }
+            )
+            .setOrigin(0.5);
+
+        prompt.add([
+            promptButton,
+            promptIcon,
+            promptText
+        ]);
+
+        const tryEnter = () => {
+            const near =
+                this.player &&
+                Phaser.Math.Distance.Between(
+                    this.player.x,
+                    this.player.y,
+                    point.x,
+                    point.y
+                ) < 265;
+
+            if (!near) {
+                this.showHudToast(
+                    "The Backward Door only opens for someone standing beside it."
+                );
+                return;
+            }
+
+            this.beginHollowroad();
+        };
+
+        gate.on("pointerdown", tryEnter);
+        promptButton.on("pointerdown", tryEnter);
+
+        this.hollowroadGate = gate;
+        this.hollowroadPoint = point;
+        this.hollowroadPrompt = prompt;
+        this.hollowroadLabel = label;
+        this.hollowroadRecord = record;
+
+    }
+
+
+    updateHollowroadPrompt() {
+
+        if (!this.hollowroadGate || !this.hollowroadPrompt || !this.player) {
+            return;
+        }
+
+        const near =
+            Phaser.Math.Distance.Between(
+                this.player.x,
+                this.player.y,
+                this.hollowroadGate.x,
+                this.hollowroadGate.y
+            ) < 265;
+
+        this.hollowroadPrompt.setVisible(near);
+
+    }
+
+
+    beginHollowroad() {
+
+        if (!this.hollowroadGate || this.claimrunLaunching) {
+            return;
+        }
+
+        this.claimrunLaunching = true;
+        this.moveTarget = null;
+        this.persistMeadowClimate();
+        AudioDirector.playEffect("click");
+
+        this.cameras.main.fadeOut(
+            240,
+            20,
+            8,
+            30
+        );
+
+        this.time.delayedCall(
+            255,
+            () => {
+                if (this.physics?.world) {
+                    this.physics.resume();
+                }
+
+                this.scene.start(
+                    "HollowroadScene",
+                    {
+                        x: this.player.x,
+                        y: this.player.y,
+                        gateX: this.hollowroadGate.x,
+                        gateY: this.hollowroadGate.y,
+                        meadowClock: this.meadowClock,
+                        meadowDay: this.meadowDay,
+                        weather: this.currentWeather
+                    }
+                );
+            }
+        );
+
+    }
+
+
     createScenery() {
 
         const rng =
@@ -4490,6 +4937,18 @@ class GameScene extends Phaser.Scene {
                     this.moonpondPoint.x,
                     this.moonpondPoint.y
                 ) < 190
+            ) {
+                continue;
+            }
+
+            if (
+                this.hollowroadPoint &&
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.hollowroadPoint.x,
+                    this.hollowroadPoint.y
+                ) < 220
             ) {
                 continue;
             }
@@ -4706,6 +5165,15 @@ class GameScene extends Phaser.Scene {
                         this.riftReliquaryPoint.y
                     ) < 235
                 ) ||
+                (
+                    this.hollowroadPoint &&
+                    Phaser.Math.Distance.Between(
+                        centerX,
+                        centerY,
+                        this.hollowroadPoint.x,
+                        this.hollowroadPoint.y
+                    ) < 250
+                ) ||
                 Phaser.Math.Distance.Between(
                     centerX,
                     centerY,
@@ -4750,6 +5218,15 @@ class GameScene extends Phaser.Scene {
                             this.riftReliquaryPoint.x,
                             this.riftReliquaryPoint.y
                         ) < 165
+                    ) ||
+                    (
+                        this.hollowroadPoint &&
+                        Phaser.Math.Distance.Between(
+                            treeX,
+                            treeY,
+                            this.hollowroadPoint.x,
+                            this.hollowroadPoint.y
+                        ) < 185
                     )
                 ) {
                     continue;
@@ -4828,6 +5305,15 @@ class GameScene extends Phaser.Scene {
                         lot.x,
                         lot.y
                     ) < lot.size * 0.85
+                ) ||
+                (
+                    this.hollowroadPoint &&
+                    Phaser.Math.Distance.Between(
+                        centerX,
+                        centerY,
+                        this.hollowroadPoint.x,
+                        this.hollowroadPoint.y
+                    ) < 260
                 )
             ) {
                 continue;
@@ -5663,6 +6149,21 @@ class GameScene extends Phaser.Scene {
                         x: this.moonpondPoint.x,
                         y: this.moonpondPoint.y,
                         name: "Moonpond"
+                    }
+                    : null
+        });
+
+        makeIndicator({
+            key: "hollowroad",
+            label: "ROAD",
+            iconTexture: "uiSword",
+            iconScale: 0.38,
+            targetProvider: () =>
+                this.hollowroadGate
+                    ? {
+                        x: this.hollowroadGate.x,
+                        y: this.hollowroadGate.y,
+                        name: "The Backward Door"
                     }
                     : null
         });
@@ -8151,6 +8652,7 @@ class GameScene extends Phaser.Scene {
             "clockCafe",
             "pipyard",
             "warroom",
+            "fatehouse",
             "bowyerLodge",
             "pikehouse",
             "lanternCloister"
@@ -8315,6 +8817,11 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (key === "fatehouse") {
+            this.openFatehousePanel(lot);
+            return;
+        }
+
         let effect = definition.description;
 
         if (key === "clockCafe") {
@@ -8345,6 +8852,92 @@ class GameScene extends Phaser.Scene {
             {
                 heroTexture: definition.texture,
                 heroScale: definition.scale * 0.62
+            }
+        );
+
+    }
+
+
+    openFatehousePanel(lot) {
+
+        const dailyReady =
+            (this.saveData.fateLastRewardDay ?? -1) !==
+            this.meadowDay;
+
+        const record =
+            `${this.saveData.fateWins || 0}W • ${this.saveData.fateLosses || 0}L`;
+
+        this.openHubPanel(
+            "FATEHOUSE",
+            `RUNEHAND • ${record}`,
+            [
+                {
+                    title:
+                        dailyReady
+                            ? "The daily omen is still unclaimed"
+                            : "The daily omen has already paid",
+                    description:
+                        dailyReady
+                            ? "Turn-based duel. Read the enemy intent, spend 3 Resolve, build block, and break the hand. First win today pays a Dawnseal bonus."
+                            : "You can keep dueling for Riftglass and record progression. The larger Dawnseal payout refreshes on the next Nullmeadow day.",
+                    action: "DEAL",
+                    previewTexture: "uiCrossed",
+                    previewScale: 0.42,
+                    callback: () => {
+                        if (this.claimrunLaunching) {
+                            return;
+                        }
+
+                        this.claimrunLaunching = true;
+                        this.persistMeadowClimate();
+                        const returnX = this.player?.x ?? lot.x;
+                        const returnY = this.player?.y ?? lot.y;
+                        this.closeHubPanel();
+                        AudioDirector.playEffect("click");
+                        this.cameras.main.fadeOut(180, 18, 8, 26);
+                        this.time.delayedCall(
+                            195,
+                            () => {
+                                this.scene.start(
+                                    "RunehandScene",
+                                    {
+                                        x: returnX,
+                                        y: returnY,
+                                        meadowDay: this.meadowDay
+                                    }
+                                );
+                            }
+                        );
+                    }
+                },
+                {
+                    title: "Rule of the house",
+                    description: "Cards cost Resolve. Block vanishes after it absorbs damage. The opponent telegraphs its next action before you commit your turn.",
+                    action: dailyReady ? "DAILY LIVE" : "PRACTICE",
+                    callback: () => {}
+                },
+                {
+                    title: `Relic cabinet  •  ${(this.saveData.relics || []).length}/4`,
+                    description:
+                        (this.saveData.relics || []).length
+                            ? (this.saveData.relics || [])
+                                .map(id => ({
+                                    "ashfang": "Ashfang",
+                                    "lantern-heart": "Lantern Heart",
+                                    "glass-compass": "Glass Compass",
+                                    "red-thread": "Red Thread"
+                                }[id] || id))
+                                .join(" • ")
+                            : "Hollowroad clears can bring back permanent relics that modify other game modes.",
+                    action: "PASSIVE",
+                    previewTexture: "riftGlassIcon",
+                    previewScale: 0.36,
+                    callback: () => {}
+                }
+            ],
+            {
+                heroTexture: "buildingFate",
+                heroScale: 0.34
             }
         );
 
@@ -10551,6 +11144,20 @@ class GameScene extends Phaser.Scene {
                     .setText(
                         `${Math.max(0, 3 - (this.saveData.moonpondCastsUsed || 0))} CASTS LEFT • FOLLOW THE POND INDICATOR`
                     );
+            } else if (this.hollowroadGate) {
+                this.objectiveIcon
+                    .setTexture("uiSword")
+                    .setScale(0.38);
+
+                this.objectiveText
+                    .setText(
+                        "THE BACKWARD DOOR • OPEN"
+                    );
+
+                this.objectiveSubText
+                    .setText(
+                        "COUNTERATTACK • FOLLOW THE ROAD INDICATOR"
+                    );
             } else if (buildSite) {
                 this.objectiveIcon
                     .setTexture("uiBuild")
@@ -10709,20 +11316,23 @@ class GameScene extends Phaser.Scene {
         let vy = 0;
 
         const speed =
-            315 *
             (
-                hasBuildingInSave(
-                    this.saveData,
-                    "pipyard"
+                315 *
+                (
+                    hasBuildingInSave(
+                        this.saveData,
+                        "pipyard"
+                    )
+                        ? 1.12
+                        : 1
+                ) *
+                (
+                    1 +
+                    (this.saveData.tech?.longstep || 0) *
+                    0.04
                 )
-                    ? 1.12
-                    : 1
-            ) *
-            (
-                1 +
-                (this.saveData.tech?.longstep || 0) *
-                0.04
-            );
+            ) +
+            ((this.saveData.relics || []).includes("glass-compass") ? 18 : 0);
 
 
         if (
@@ -10929,6 +11539,7 @@ class GameScene extends Phaser.Scene {
         this.updateCrankhousePrompt();
         this.updateRiftReliquaryPrompt();
         this.updateMoonpondPrompt();
+        this.updateHollowroadPrompt();
 
     }
 
@@ -11058,7 +11669,9 @@ const config = {
         GameScene,
         ClaimRunScene,
         InvasionScene,
-        MoonpondScene
+        MoonpondScene,
+        HollowroadScene,
+        RunehandScene
     ]
 
 };

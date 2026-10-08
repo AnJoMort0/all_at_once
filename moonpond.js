@@ -1400,6 +1400,19 @@ class MoonpondScene extends Phaser.Scene {
                 ) + amount;
         }
 
+        if (hasBuildingInSave(this.saveData, "bountyBell")) {
+            const bounty = ensureRotatingBounty(this.saveData);
+            if (
+                bounty.definition.type === "pond" &&
+                !bounty.state.claimed
+            ) {
+                bounty.state.progress = Math.min(
+                    bounty.definition.target,
+                    Number(bounty.state.progress || 0) + 1
+                );
+            }
+        }
+
         persistSave(
             this.saveData
         );
