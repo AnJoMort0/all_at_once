@@ -6400,7 +6400,10 @@ class GameScene extends Phaser.Scene {
         panel.lineStyle(2, 0xffffff, 0.08);
         panel.lineBetween(68, viewportTop - 12, 652, viewportTop - 12);
 
-        const headerX = options.heroTexture ? 394 : GAME_WIDTH / 2;
+        // Hero panels reserve the left side for the actual building art.
+        // The old value (394) was used with a left origin, which pushed the
+        // title/subtitle beyond the right edge of the 720px viewport.
+        const headerX = options.heroTexture ? 190 : GAME_WIDTH / 2;
 
         const heading =
             this.add.text(
@@ -6412,7 +6415,7 @@ class GameScene extends Phaser.Scene {
                     fontSize: options.heroTexture ? "30px" : "34px",
                     color: "#fff0a2",
                     align: options.heroTexture ? "left" : "center",
-                    wordWrap: { width: options.heroTexture ? 410 : 560 }
+                    wordWrap: { width: options.heroTexture ? 430 : 560 }
                 }
             )
             .setOrigin(options.heroTexture ? 0 : 0.5, 0.5);
@@ -6428,7 +6431,7 @@ class GameScene extends Phaser.Scene {
                     fontStyle: "bold",
                     color: "#bdc9d5",
                     align: options.heroTexture ? "left" : "center",
-                    wordWrap: { width: options.heroTexture ? 405 : 540 }
+                    wordWrap: { width: options.heroTexture ? 430 : 540 }
                 }
             )
             .setOrigin(options.heroTexture ? 0 : 0.5, 0);
@@ -6440,8 +6443,11 @@ class GameScene extends Phaser.Scene {
             detail
         ]);
 
+        let heroPlate = null;
+        let hero = null;
+
         if (options.heroTexture) {
-            const heroPlate =
+            heroPlate =
                 this.add.image(
                     118,
                     panelTop + 74,
@@ -6450,7 +6456,7 @@ class GameScene extends Phaser.Scene {
                 .setScale(1.38)
                 .setAlpha(0.92);
 
-            const hero =
+            hero =
                 this.add.image(
                     118,
                     panelTop + 76,
@@ -6466,23 +6472,20 @@ class GameScene extends Phaser.Scene {
 
         root.add(scrollContent);
 
-        const maskSource =
-            this.add.graphics();
+        /*
+            Do not use a Phaser GeometryMask for settlement menus.
 
-        maskSource.fillStyle(0xffffff, 1);
-        maskSource.fillRect(
-            58,
-            viewportTop,
-            592,
-            viewportHeight
-        );
-        maskSource.setVisible(false);
-        root.add(maskSource);
+            hudRoot is inverse-scaled to compensate for camera zoom. Geometry
+            masks live in renderer/world space, so nesting one under this HUD
+            caused the mask and its content to disagree about coordinates on
+            some camera zooms. The result was an apparently empty building
+            panel even though every row existed.
 
-        const mask =
-            maskSource.createGeometryMask();
-
-        scrollContent.setMask(mask);
+            Instead the list remains a normal Container and opaque HUD-space
+            curtains cover anything that scrolls above/below the viewport.
+            This is boring, deterministic and works at every Nullmeadow zoom.
+        */
+        const mask = null;
 
         const rowZones = [];
 
@@ -6645,6 +6648,7 @@ class GameScene extends Phaser.Scene {
                 height: rowHeight,
                 scrollable: true,
                 enabled: true,
+                visuals: rowChildren,
                 callback: () => {
                     if (row.ready === false) {
                         AudioDirector.playEffect("hit");
@@ -6663,6 +6667,42 @@ class GameScene extends Phaser.Scene {
             rowZones.push(zone);
             this.hubActionZones.push(zone);
         });
+
+        /*
+            HUD-space clipping curtains. Rows may move continuously under
+            these while dragging/wheeling, but can never paint over the menu
+            title or BACK control.
+        */
+        const topCurtain = this.add.graphics();
+        topCurtain.fillStyle(0x0d1724, 1);
+        topCurtain.fillRect(
+            47,
+            panelTop + 4,
+            626,
+            Math.max(0, viewportTop - panelTop - 4)
+        );
+        topCurtain.lineStyle(2, 0xffffff, 0.08);
+        topCurtain.lineBetween(68, viewportTop - 12, 652, viewportTop - 12);
+
+        const bottomCurtain = this.add.graphics();
+        bottomCurtain.fillStyle(0x0d1724, 1);
+        bottomCurtain.fillRect(
+            47,
+            viewportBottom,
+            626,
+            Math.max(0, panelBottom - viewportBottom - 4)
+        );
+        bottomCurtain.lineStyle(2, 0xffffff, 0.06);
+        bottomCurtain.lineBetween(68, viewportBottom, 652, viewportBottom);
+
+        root.add([topCurtain, bottomCurtain]);
+
+        // Curtains were added after the list, so put the actual header art/text
+        // back above them. This gives us clipping without renderer masks.
+        root.bringToTop(heading);
+        root.bringToTop(detail);
+        if (heroPlate) root.bringToTop(heroPlate);
+        if (hero) root.bringToTop(hero);
 
         let thumb = null;
         let thumbHeight = viewportHeight;

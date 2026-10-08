@@ -294,12 +294,14 @@ class InvasionScene extends Phaser.Scene {
             20
         );
 
-        this.events.once(
-            Phaser.Scenes.Events.SHUTDOWN,
-            () => {
-                this.physics.resume();
-            }
-        );
+        /*
+            Do not resume Arcade Physics from SHUTDOWN.
+
+            Phaser tears the scene physics world down as part of shutdown,
+            so a late resume here can dereference a null world while
+            returning to Nullmeadow. Retry/return resume explicitly before
+            starting the next scene instead.
+        */
 
     }
 
@@ -2261,6 +2263,7 @@ class InvasionScene extends Phaser.Scene {
                     : "uiRoundBlue"
             )
             .setScale(0.80)
+            .setScrollFactor(0)
             .setDepth(30002)
             .setInteractive({
                 useHandCursor: true
@@ -2273,6 +2276,7 @@ class InvasionScene extends Phaser.Scene {
                 iconTexture
             )
             .setScale(0.42)
+            .setScrollFactor(0)
             .setDepth(30003);
 
         const text =
@@ -2282,13 +2286,14 @@ class InvasionScene extends Phaser.Scene {
                 label,
                 {
                     fontFamily: FONT_DISPLAY,
-                    fontSize: "16px",
+                    fontSize: label.length > 10 ? "13px" : "16px",
                     color: "#ffffff",
                     stroke: "#0b1018",
                     strokeThickness: 4
                 }
             )
             .setOrigin(0.5)
+            .setScrollFactor(0)
             .setDepth(30003);
 
         button.on("pointerdown", callback);
@@ -2467,7 +2472,9 @@ class InvasionScene extends Phaser.Scene {
             "uiSword",
             false,
             () => {
-                this.physics.resume();
+                if (this.physics?.world) {
+                    this.physics.resume();
+                }
                 this.scene.restart(this.entryData);
             }
         );
@@ -2475,7 +2482,7 @@ class InvasionScene extends Phaser.Scene {
         this.createResultButton(
             440,
             735,
-            "MEADOW",
+            "RETURN TO MEADOW",
             "uiTown",
             true,
             () => {
@@ -2493,7 +2500,9 @@ class InvasionScene extends Phaser.Scene {
         }
 
         this.returningToMeadow = true;
-        this.physics.resume();
+        if (this.physics?.world) {
+            this.physics.resume();
+        }
         this.input.enabled = false;
 
         persistSave(this.saveData);
