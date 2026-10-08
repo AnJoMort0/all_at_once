@@ -1,6 +1,6 @@
 /*
 ===============================================================================
-NULLMEADOW — PROJECT CONTRACT + CANON — v0.7 "RIFTFALL"
+NULLMEADOW — PROJECT CONTRACT + CANON — v0.8 "DUSK & MOONPOND"
 ===============================================================================
 
 DEVELOPMENT RULES
@@ -22,7 +22,8 @@ DEVELOPMENT RULES
   effects; recognizable UI/world symbols should come from the asset library.
 
 CURRENT WORLD CANON
-- Nullmeadow: the overworld/hub settlement.
+- Nullmeadow: the overworld/hub settlement. It now has a persistent day/night
+  clock plus deterministic CLEAR / MIST / DRIZZLE weather segments.
 - Pip: the roaming player character who physically picks up loose resources.
 - The Crankhouse: central clickable building. Each crank ejects a loose
   Glimmer pile; Valor upgrades the pile yield and passive clockwork production.
@@ -45,9 +46,13 @@ CURRENT WORLD CANON
   immediately walks back to its post, and only then becomes available again.
 - Nullmeadow navigation indicators appear at the screen edge for important off-screen
   targets: the Crankhouse, the Calling Lot, the nearest claimed build-ready Ghostlot,
-  and any currently manifested Nightglass Reliquary.
-- Nightglass Reliquary: an intermittent black-tower anomaly that opens RIFTFALL, a
-  separate survival game. Pip fights an all-direction invasion until dawn or death.
+  any manifested Nightglass Reliquary, and any manifested Moonpond.
+- Nightglass Reliquary: an intermittent black-tower anomaly that opens RIFTFALL.
+  Riftfall is a separate scene for code organization, but fictionally it is the actual
+  Nullmeadow being invaded. A later counter-attack mode may travel into the enemy realm.
+- Moonpond: an intermittent watery anomaly. It offers three casts per manifestation;
+  catches pay existing currencies instead of adding another wallet resource. Mist,
+  drizzle and night can improve the catch table.
 - Riftglass: purple kill currency physically dropped by enemies during Riftfall. It is
   spent to construct buildings on claimed Ghostlots.
 - Dawnseals: rare gold victory currency earned by surviving a full Riftfall. It powers
@@ -199,7 +204,13 @@ function defaultSave() {
         buildings: {},
         tech: {},
         claimedAchievements: [],
-        bounty: null
+        bounty: null,
+        meadowClock: 0.34,
+        meadowDay: 0,
+        moonpondCycleKey: "",
+        moonpondCastsUsed: 0,
+        pondCatches: 0,
+        pondRareCatches: 0
     };
 
 }
@@ -229,6 +240,42 @@ function ensureMetaState(save) {
     save.invasionRuns = Math.max(0, Math.floor(Number(save.invasionRuns) || 0));
     save.invasionWins = Math.max(0, Math.floor(Number(save.invasionWins) || 0));
     save.invasionKills = Math.max(0, Math.floor(Number(save.invasionKills) || 0));
+
+    const rawClock = Number(save.meadowClock);
+    save.meadowClock =
+        Number.isFinite(rawClock)
+            ? ((rawClock % 1) + 1) % 1
+            : 0.34;
+
+    save.meadowDay =
+        Math.max(
+            0,
+            Math.floor(Number(save.meadowDay) || 0)
+        );
+
+    save.moonpondCycleKey =
+        typeof save.moonpondCycleKey === "string"
+            ? save.moonpondCycleKey
+            : "";
+
+    save.moonpondCastsUsed =
+        Phaser.Math.Clamp(
+            Math.floor(Number(save.moonpondCastsUsed) || 0),
+            0,
+            3
+        );
+
+    save.pondCatches =
+        Math.max(
+            0,
+            Math.floor(Number(save.pondCatches) || 0)
+        );
+
+    save.pondRareCatches =
+        Math.max(
+            0,
+            Math.floor(Number(save.pondRareCatches) || 0)
+        );
 
     for (const [key, max] of [
         ["riftTempo", 5],
@@ -805,6 +852,24 @@ const ASSETS = {
     fenceTiles:
         "assets/images/environment/decorations/cute_fantasy/Fences.png",
 
+    cloud1:
+        "assets/images/environment/decorations/tiny_swords/Clouds/Clouds_01.png",
+
+    cloud4:
+        "assets/images/environment/decorations/tiny_swords/Clouds/Clouds_04.png",
+
+    moonWaterTile:
+        "assets/images/tilesets/tiny_swords/Water Background color.png",
+
+    moonWaterRocks:
+        "assets/images/environment/decorations/tiny_swords/Rocks in the Water/Water Rocks_01.png",
+
+    moonWaterSplash:
+        "assets/images/spritesheets/effects/tiny_swords/Water Splash.png",
+
+    moonpondIcon:
+        "assets/images/icons/raven_fantasy_icons/64x64/fc19.png",
+
 
     skeletonMove:
         "assets/images/spritesheets/enemies/enemy_animations/enemies-skeleton1_movement.png",
@@ -956,6 +1021,12 @@ const ASSETS = {
     uiTinySquareBlue:
         "assets/images/ui/tiny_swords/UI Elements/Buttons/TinySquareBlueButton.png",
 
+
+    moonpondWater:
+        "assets/audio/sfx/environment/water_babbling_loop.wav",
+
+    moonpondSplashSfx:
+        "assets/audio/sfx/environment/water_splashing.wav",
 
     crankClick:
         "assets/audio/sfx/other/finger_click.wav",
@@ -1132,6 +1203,20 @@ const ACHIEVEMENT_DEFS = [
         description: "Defeat 250 Riftfall invaders total.",
         test: save => save.invasionKills >= 250,
         reward: { riftglass: 180, dawnseals: 2 }
+    },
+    {
+        id: "pond-whisperer",
+        title: "POND WHISPERER",
+        description: "Land your first Moonpond catch.",
+        test: save => (save.pondCatches || 0) >= 1,
+        reward: { riftglass: 55 }
+    },
+    {
+        id: "dawn-on-a-line",
+        title: "DAWN ON A LINE",
+        description: "Land a rare Moonpond catch.",
+        test: save => (save.pondRareCatches || 0) >= 1,
+        reward: { dawnseals: 2 }
     }
 ];
 
@@ -1199,8 +1284,14 @@ class GameScene extends Phaser.Scene {
     init(data) {
 
         this.returnFromInvasion = Boolean(data?.returnFromInvasion);
+        this.returnFromMoonpond = Boolean(data?.returnFromMoonpond);
+
+        const returningFromSideGame =
+            this.returnFromInvasion ||
+            this.returnFromMoonpond;
+
         this.returnSpawn =
-            this.returnFromInvasion &&
+            returningFromSideGame &&
             Number.isFinite(data?.x) &&
             Number.isFinite(data?.y)
                 ? { x: data.x, y: data.y }
@@ -1260,6 +1351,28 @@ class GameScene extends Phaser.Scene {
             "chest",
             ASSETS.chest
         );
+
+        for (const [key, source] of [
+            ["weatherCloud1", ASSETS.cloud1],
+            ["weatherCloud4", ASSETS.cloud4],
+            ["moonWaterTile", ASSETS.moonWaterTile],
+            ["moonpondIcon", ASSETS.moonpondIcon]
+        ]) {
+            if (!this.textures.exists(key)) {
+                this.load.image(key, source);
+            }
+        }
+
+        if (!this.textures.exists("moonWaterRocks")) {
+            this.load.spritesheet(
+                "moonWaterRocks",
+                ASSETS.moonWaterRocks,
+                {
+                    frameWidth: 64,
+                    frameHeight: 64
+                }
+            );
+        }
 
         this.load.image(
             "uiSword",
@@ -1796,6 +1909,7 @@ class GameScene extends Phaser.Scene {
             "#718955"
         );
 
+        this.initializeMeadowClimateState();
 
         this.createGround();
 
@@ -1803,9 +1917,13 @@ class GameScene extends Phaser.Scene {
 
         this.createRiftReliquary();
 
+        this.createMoonpond();
+
         this.createScenery();
 
         this.createWorldAtmosphere();
+
+        this.createMeadowClimateVisuals();
 
         this.createCrankhouse();
 
@@ -2087,6 +2205,1049 @@ class GameScene extends Phaser.Scene {
             );
 
         }
+
+    }
+
+
+
+    initializeMeadowClimateState() {
+
+        this.meadowClock =
+            Number.isFinite(Number(this.saveData.meadowClock))
+                ? ((Number(this.saveData.meadowClock) % 1) + 1) % 1
+                : 0.34;
+
+        this.meadowDay =
+            Math.max(
+                0,
+                Math.floor(Number(this.saveData.meadowDay) || 0)
+            );
+
+        this.climateSegment =
+            Math.floor(this.meadowClock * 8) % 8;
+
+        this.currentWeather =
+            this.weatherForSegment(
+                this.meadowDay,
+                this.climateSegment
+            );
+
+        this.currentDayPhase =
+            this.getMeadowDayPhase(
+                this.meadowClock
+            );
+
+        this.lastClimatePersistAt = 0;
+        this.lastAnnouncedClimate =
+            `${this.currentDayPhase}:${this.currentWeather}`;
+
+    }
+
+
+    getMeadowDayPhase(clock = this.meadowClock) {
+
+        if (clock < 0.18 || clock >= 0.90) {
+            return "NIGHT";
+        }
+
+        if (clock < 0.30) {
+            return "DAWN";
+        }
+
+        if (clock < 0.70) {
+            return "DAY";
+        }
+
+        if (clock < 0.82) {
+            return "DUSK";
+        }
+
+        return "NIGHT";
+
+    }
+
+
+    weatherForSegment(day, segment) {
+
+        const settlement =
+            this.saveData.unlockedLots?.length || 0;
+
+        let hash =
+            Math.imul(day + 17, 1103515245) ^
+            Math.imul(segment + 31, 1597334677) ^
+            Math.imul(settlement + 7, 2654435761);
+
+        hash >>>= 0;
+
+        const roll =
+            hash % 100;
+
+        if (roll < 18) {
+            return "MIST";
+        }
+
+        if (roll < 36) {
+            return "DRIZZLE";
+        }
+
+        return "CLEAR";
+
+    }
+
+
+    persistMeadowClimate() {
+
+        if (!this.saveData) {
+            return;
+        }
+
+        this.saveData.meadowClock =
+            this.meadowClock;
+
+        this.saveData.meadowDay =
+            this.meadowDay;
+
+        persistSave(
+            this.saveData
+        );
+
+        this.registry.set(
+            "saveData",
+            this.saveData
+        );
+
+    }
+
+
+    createMeadowClimateVisuals() {
+
+        /*
+            The sky tint is deliberately a world overlay, not HUD art.
+            World labels darken with the meadow; interaction prompts remain above it.
+        */
+        this.nightVeil =
+            this.add.rectangle(
+                WORLD_SIZE / 2,
+                WORLD_SIZE / 2,
+                WORLD_SIZE,
+                WORLD_SIZE,
+                0x0b1632,
+                0
+            )
+            .setDepth(48000);
+
+        this.weatherClouds = [];
+
+        const rng =
+            this.makeRng(
+                0x434c494d ^
+                ((this.meadowDay + 1) * 97)
+            );
+
+        for (let i = 0; i < 6; i++) {
+
+            const cloud =
+                this.add.image(
+                    rng() * WORLD_SIZE,
+                    100 + rng() * (WORLD_SIZE - 200),
+                    i % 2
+                        ? "weatherCloud1"
+                        : "weatherCloud4"
+                )
+                .setScale(
+                    0.45 + rng() * 0.42
+                )
+                .setAlpha(0)
+                .setDepth(47000);
+
+            cloud.__climateSpeed =
+                7 + rng() * 13;
+
+            cloud.__climateBaseY =
+                cloud.y;
+
+            cloud.__climatePhase =
+                rng() * Math.PI * 2;
+
+            this.weatherClouds.push(
+                cloud
+            );
+
+        }
+
+        this.weatherRain = [];
+
+        for (let i = 0; i < 110; i++) {
+
+            const drop =
+                this.add.rectangle(
+                    rng() * WORLD_SIZE,
+                    rng() * WORLD_SIZE,
+                    3,
+                    18 + rng() * 12,
+                    0xc6ebff,
+                    0
+                )
+                .setRotation(-0.18)
+                .setDepth(48500);
+
+            drop.__rainSpeed =
+                520 + rng() * 430;
+
+            drop.__rainDrift =
+                -70 - rng() * 55;
+
+            this.weatherRain.push(
+                drop
+            );
+
+        }
+
+        this.applyMeadowWeatherVisuals(
+            false
+        );
+
+        this.updateMeadowClimate(
+            0
+        );
+
+    }
+
+
+    applyMeadowWeatherVisuals(animate = true) {
+
+        const cloudAlpha =
+            this.currentWeather === "MIST"
+                ? 0.34
+                : this.currentWeather === "DRIZZLE"
+                    ? 0.22
+                    : 0.055;
+
+        this.weatherRainActive =
+            this.currentWeather === "DRIZZLE";
+
+        for (const cloud of this.weatherClouds || []) {
+
+            this.tweens.killTweensOf(
+                cloud
+            );
+
+            if (animate) {
+                this.tweens.add({
+                    targets: cloud,
+                    alpha: cloudAlpha,
+                    duration: 900,
+                    ease: "Sine.InOut"
+                });
+            } else {
+                cloud.setAlpha(
+                    cloudAlpha
+                );
+            }
+
+        }
+
+        if (!this.weatherRainActive) {
+            for (const drop of this.weatherRain || []) {
+                drop.setAlpha(0);
+            }
+        }
+
+    }
+
+
+    updateMeadowClimate(delta = 16.667) {
+
+        if (!Number.isFinite(this.meadowClock)) {
+            return;
+        }
+
+        const dt =
+            Math.min(
+                Math.max(Number(delta) || 16.667, 0),
+                80
+            );
+
+        /*
+            One complete Nullmeadow day is eight real minutes.
+            Long enough to feel persistent, short enough to actually see change.
+        */
+        this.meadowClock +=
+            dt /
+            (8 * 60 * 1000);
+
+        if (this.meadowClock >= 1) {
+            this.meadowClock %= 1;
+            this.meadowDay++;
+        }
+
+        const phase =
+            this.getMeadowDayPhase(
+                this.meadowClock
+            );
+
+        const segment =
+            Math.floor(
+                this.meadowClock * 8
+            ) % 8;
+
+        const segmentChanged =
+            segment !==
+            this.climateSegment;
+
+        const phaseChanged =
+            phase !==
+            this.currentDayPhase;
+
+        this.currentDayPhase =
+            phase;
+
+        if (segmentChanged) {
+
+            this.climateSegment =
+                segment;
+
+            this.currentWeather =
+                this.weatherForSegment(
+                    this.meadowDay,
+                    segment
+                );
+
+            this.applyMeadowWeatherVisuals(
+                true
+            );
+
+        }
+
+        const solar =
+            (
+                Math.cos(
+                    (this.meadowClock - 0.5) *
+                    Math.PI *
+                    2
+                )
+                +
+                1
+            )
+            /
+            2;
+
+        const nightStrength =
+            Phaser.Math.Clamp(
+                1 -
+                Math.pow(
+                    solar,
+                    0.55
+                ),
+                0,
+                1
+            );
+
+        if (this.nightVeil) {
+            this.nightVeil.setAlpha(
+                nightStrength * 0.48
+            );
+        }
+
+        const climateTime =
+            this.time.now * 0.00025;
+
+        for (const cloud of this.weatherClouds || []) {
+
+            cloud.x +=
+                cloud.__climateSpeed *
+                dt /
+                1000;
+
+            if (cloud.x > WORLD_SIZE + 320) {
+                cloud.x = -320;
+            }
+
+            cloud.y =
+                cloud.__climateBaseY +
+                Math.sin(
+                    climateTime +
+                    cloud.__climatePhase
+                ) *
+                18;
+
+        }
+
+        if (this.weatherRainActive) {
+
+            for (const drop of this.weatherRain || []) {
+
+                drop.setAlpha(
+                    this.currentDayPhase === "NIGHT"
+                        ? 0.32
+                        : 0.24
+                );
+
+                drop.y +=
+                    drop.__rainSpeed *
+                    dt /
+                    1000;
+
+                drop.x +=
+                    drop.__rainDrift *
+                    dt /
+                    1000;
+
+                if (drop.y > WORLD_SIZE + 40) {
+                    drop.y = -40;
+                }
+
+                if (drop.x < -40) {
+                    drop.x = WORLD_SIZE + 40;
+                }
+
+            }
+
+        }
+
+        if (
+            segmentChanged ||
+            phaseChanged
+        ) {
+
+            if (this.hudRoot) {
+
+                const climateKey =
+                    `${this.currentDayPhase}:${this.currentWeather}`;
+
+                if (
+                    climateKey !==
+                    this.lastAnnouncedClimate
+                ) {
+
+                    this.lastAnnouncedClimate =
+                        climateKey;
+
+                    const weatherText =
+                        this.currentWeather === "CLEAR"
+                            ? ""
+                            : ` • ${this.currentWeather}`;
+
+                    this.showHudToast(
+                        `${this.currentDayPhase}${weatherText} settles over Nullmeadow.`
+                    );
+
+                }
+
+                this.updateHUD();
+
+            }
+
+        }
+
+        if (
+            this.time.now -
+            this.lastClimatePersistAt
+            >
+            5000
+        ) {
+
+            this.lastClimatePersistAt =
+                this.time.now;
+
+            this.persistMeadowClimate();
+
+        }
+
+    }
+
+
+    moonpondCycleKey() {
+
+        return `${this.meadowDay}:${this.climateSegment}`;
+
+    }
+
+
+    syncMoonpondCycle() {
+
+        const key =
+            this.moonpondCycleKey();
+
+        if (
+            this.saveData.moonpondCycleKey !==
+            key
+        ) {
+
+            this.saveData.moonpondCycleKey =
+                key;
+
+            this.saveData.moonpondCastsUsed =
+                0;
+
+            persistSave(
+                this.saveData
+            );
+
+        }
+
+        return key;
+
+    }
+
+
+    shouldSpawnMoonpond() {
+
+        this.syncMoonpondCycle();
+
+        if (
+            (this.saveData.moonpondCastsUsed || 0)
+            >=
+            3
+        ) {
+            return false;
+        }
+
+        /*
+            Guarantee the first pond so the player can discover the system.
+            Later manifestations favor wet weather and darker hours.
+        */
+        if (
+            (this.saveData.pondCatches || 0)
+            ===
+            0
+        ) {
+            return true;
+        }
+
+        const keySeed =
+            Math.imul(this.meadowDay + 13, 374761393) ^
+            Math.imul(this.climateSegment + 29, 668265263) ^
+            Math.imul((this.saveData.invasionWins || 0) + 5, 2246822519);
+
+        const roll =
+            (keySeed >>> 0) % 100;
+
+        const weatherBonus =
+            this.currentWeather === "MIST"
+                ? 32
+                : this.currentWeather === "DRIZZLE"
+                    ? 20
+                    : 0;
+
+        const phaseBonus =
+            (
+                this.currentDayPhase === "NIGHT" ||
+                this.currentDayPhase === "DUSK"
+            )
+                ? 12
+                : 0;
+
+        return (
+            roll <
+            24 +
+            weatherBonus +
+            phaseBonus
+        );
+
+    }
+
+
+    createMoonpond() {
+
+        this.moonpond = null;
+        this.moonpondPoint = null;
+        this.moonpondPrompt = null;
+
+        if (
+            !this.shouldSpawnMoonpond()
+        ) {
+            return;
+        }
+
+        const rng =
+            this.makeRng(
+                0x504f4e44 ^
+                ((this.meadowDay + 1) * 4789) ^
+                ((this.climateSegment + 3) * 1613)
+            );
+
+        let point = null;
+
+        for (
+            let attempt = 0;
+            attempt < 60;
+            attempt++
+        ) {
+
+            const angle =
+                rng() *
+                Math.PI *
+                2;
+
+            const radius =
+                520 +
+                rng() *
+                310;
+
+            const x =
+                Phaser.Math.Clamp(
+                    this.worldCenter.x +
+                    Math.cos(angle) *
+                    radius,
+                    170,
+                    WORLD_SIZE - 170
+                );
+
+            const y =
+                Phaser.Math.Clamp(
+                    this.worldCenter.y +
+                    Math.sin(angle) *
+                    radius,
+                    190,
+                    WORLD_SIZE - 190
+                );
+
+            const collidesLot =
+                this.ghostlots?.some(
+                    lot =>
+                        Phaser.Math.Distance.Between(
+                            x,
+                            y,
+                            lot.x,
+                            lot.y
+                        )
+                        <
+                        lot.size * 0.75 +
+                        120
+                );
+
+            const collidesRift =
+                this.riftReliquaryPoint &&
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.riftReliquaryPoint.x,
+                    this.riftReliquaryPoint.y
+                )
+                <
+                260;
+
+            if (
+                !collidesLot &&
+                !collidesRift
+            ) {
+                point = { x, y };
+                break;
+            }
+
+        }
+
+        point ||= {
+            x:
+                this.worldCenter.x -
+                660,
+            y:
+                this.worldCenter.y +
+                410
+        };
+
+        const waterBack =
+            this.add.image(
+                point.x,
+                point.y,
+                "moonWaterTile"
+            )
+            .setScale(
+                3.75,
+                2.25
+            )
+            .setTint(
+                0x6faec0
+            )
+            .setAlpha(0.92)
+            .setDepth(
+                point.y - 18
+            );
+
+        const waterFront =
+            this.add.image(
+                point.x + 28,
+                point.y + 5,
+                "moonWaterTile"
+            )
+            .setScale(
+                2.85,
+                1.72
+            )
+            .setTint(
+                0x8ad2d5
+            )
+            .setAlpha(0.48)
+            .setDepth(
+                point.y - 16
+            );
+
+        const rockOffsets = [
+            [-105, -56, 1],
+            [104, -43, 5],
+            [-112, 52, 9],
+            [98, 57, 13]
+        ];
+
+        for (
+            const [dx, dy, frame]
+            of rockOffsets
+        ) {
+
+            this.add.sprite(
+                point.x + dx,
+                point.y + dy,
+                "moonWaterRocks",
+                frame
+            )
+            .setScale(
+                0.82
+            )
+            .setDepth(
+                point.y + dy + 8
+            );
+
+        }
+
+        const sigil =
+            this.add.image(
+                point.x,
+                point.y - 94,
+                "moonpondIcon"
+            )
+            .setScale(0.82)
+            .setDepth(
+                point.y + 35
+            );
+
+        this.tweens.add({
+            targets: sigil,
+            y: point.y - 106,
+            scaleX: 0.90,
+            scaleY: 0.90,
+            duration: 980,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.InOut"
+        });
+
+        const label =
+            this.add.text(
+                point.x,
+                point.y + 112,
+                "MOONPOND",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "18px",
+                    color: "#d9fbff",
+                    stroke: "#152535",
+                    strokeThickness: 5
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(
+                point.y + 120
+            );
+
+        const hitZone =
+            this.add.zone(
+                point.x,
+                point.y,
+                270,
+                190
+            )
+            .setDepth(
+                point.y + 110
+            )
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        hitZone.__blocksWorldInput =
+            true;
+
+        const prompt =
+            this.add.container(
+                point.x,
+                point.y - 175
+            )
+            .setDepth(50020)
+            .setVisible(false);
+
+        const bubble =
+            this.add.graphics();
+
+        bubble.fillStyle(
+            THEME.ink,
+            0.97
+        );
+
+        bubble.fillRoundedRect(
+            -160,
+            -52,
+            320,
+            104,
+            22
+        );
+
+        bubble.lineStyle(
+            3,
+            0x86e2ef,
+            0.80
+        );
+
+        bubble.strokeRoundedRect(
+            -160,
+            -52,
+            320,
+            104,
+            22
+        );
+
+        bubble.fillStyle(
+            THEME.ink,
+            0.97
+        );
+
+        bubble.fillTriangle(
+            -12,
+            52,
+            12,
+            52,
+            0,
+            69
+        );
+
+        const title =
+            this.add.text(
+                -138,
+                -37,
+                "MOONPOND",
+                {
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: "20px",
+                    color: "#d9fbff"
+                }
+            );
+
+        const castsLeft =
+            Math.max(
+                0,
+                3 -
+                (this.saveData.moonpondCastsUsed || 0)
+            );
+
+        const sub =
+            this.add.text(
+                -138,
+                -7,
+                `${castsLeft} CASTS • ${this.currentDayPhase} • ${this.currentWeather}`,
+                {
+                    fontFamily: FONT_TECH,
+                    fontSize: "10px",
+                    fontStyle: "bold",
+                    color: "#a9c7d1"
+                }
+            );
+
+        const play =
+            this.add.image(
+                114,
+                0,
+                "uiRoundBlue"
+            )
+            .setScale(0.66)
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        play.__blocksWorldInput =
+            true;
+
+        const playIcon =
+            this.add.image(
+                114,
+                0,
+                "moonpondIcon"
+            )
+            .setScale(0.48);
+
+        prompt.add([
+            bubble,
+            title,
+            sub,
+            play,
+            playIcon
+        ]);
+
+        const interact =
+            event => {
+
+                event?.stopPropagation?.();
+
+                const distance =
+                    Phaser.Math.Distance.Between(
+                        this.player?.x ??
+                            this.worldCenter.x,
+                        this.player?.y ??
+                            this.worldCenter.y,
+                        point.x,
+                        point.y
+                    );
+
+                if (
+                    distance >
+                    270
+                ) {
+
+                    this.walkTo(
+                        point.x,
+                        point.y + 125
+                    );
+
+                    this.showHudToast(
+                        "Something is moving under the Moonpond."
+                    );
+
+                    return;
+
+                }
+
+                prompt.setVisible(
+                    true
+                );
+
+            };
+
+        hitZone.on(
+            "pointerdown",
+            (
+                pointer,
+                localX,
+                localY,
+                event
+            ) =>
+                interact(event)
+        );
+
+        play.on(
+            "pointerdown",
+            (
+                pointer,
+                localX,
+                localY,
+                event
+            ) => {
+
+                event?.stopPropagation?.();
+                this.beginMoonpond();
+
+            }
+        );
+
+        this.moonpond =
+            hitZone;
+
+        this.moonpondPoint =
+            point;
+
+        this.moonpondPrompt =
+            prompt;
+
+        this.moonpondLabel =
+            label;
+
+        this.moonpondWater = [
+            waterBack,
+            waterFront
+        ];
+
+    }
+
+
+    updateMoonpondPrompt() {
+
+        if (
+            !this.moonpond ||
+            !this.moonpondPrompt ||
+            !this.player
+        ) {
+            return;
+        }
+
+        const near =
+            Phaser.Math.Distance.Between(
+                this.player.x,
+                this.player.y,
+                this.moonpondPoint.x,
+                this.moonpondPoint.y
+            )
+            <
+            275;
+
+        this.moonpondPrompt
+            .setVisible(
+                near
+            );
+
+    }
+
+
+    beginMoonpond() {
+
+        if (
+            !this.moonpond ||
+            this.claimrunLaunching
+        ) {
+            return;
+        }
+
+        this.claimrunLaunching =
+            true;
+
+        this.moveTarget =
+            null;
+
+        this.persistMeadowClimate();
+
+        AudioDirector.playEffect(
+            "click"
+        );
+
+        this.cameras.main.fadeOut(
+            240,
+            12,
+            28,
+            36
+        );
+
+        this.time.delayedCall(
+            255,
+            () => {
+
+                this.scene.start(
+                    "MoonpondScene",
+                    {
+                        x:
+                            this.player.x,
+                        y:
+                            this.player.y,
+                        pondX:
+                            this.moonpondPoint.x,
+                        pondY:
+                            this.moonpondPoint.y,
+                        cycleKey:
+                            this.moonpondCycleKey(),
+                        phase:
+                            this.currentDayPhase,
+                        weather:
+                            this.currentWeather
+                    }
+                );
+
+            }
+        );
 
     }
 
@@ -3194,6 +4355,7 @@ class GameScene extends Phaser.Scene {
 
         this.claimrunLaunching = true;
         this.moveTarget = null;
+        this.persistMeadowClimate();
         AudioDirector.playEffect("click");
 
         this.cameras.main.fadeOut(
@@ -3213,7 +4375,10 @@ class GameScene extends Phaser.Scene {
                         x: this.player.x,
                         y: this.player.y,
                         riftX: this.riftReliquary.x,
-                        riftY: this.riftReliquary.y
+                        riftY: this.riftReliquary.y,
+                        meadowClock: this.meadowClock,
+                        meadowDay: this.meadowDay,
+                        weather: this.currentWeather
                     }
                 );
             }
@@ -3312,6 +4477,18 @@ class GameScene extends Phaser.Scene {
                     y,
                     this.riftReliquaryPoint.x,
                     this.riftReliquaryPoint.y
+                ) < 190
+            ) {
+                continue;
+            }
+
+            if (
+                this.moonpondPoint &&
+                Phaser.Math.Distance.Between(
+                    x,
+                    y,
+                    this.moonpondPoint.x,
+                    this.moonpondPoint.y
                 ) < 190
             ) {
                 continue;
@@ -4471,6 +5648,21 @@ class GameScene extends Phaser.Scene {
                         x: this.riftReliquary.x,
                         y: this.riftReliquary.y,
                         name: "Nightglass Reliquary"
+                    }
+                    : null
+        });
+
+        makeIndicator({
+            key: "moonpond",
+            label: "POND",
+            iconTexture: "moonpondIcon",
+            iconScale: 0.50,
+            targetProvider: () =>
+                this.moonpond
+                    ? {
+                        x: this.moonpondPoint.x,
+                        y: this.moonpondPoint.y,
+                        name: "Moonpond"
                     }
                     : null
         });
@@ -6325,9 +7517,37 @@ class GameScene extends Phaser.Scene {
                 zone.contentY -
                 scroll.offset;
 
+            const rowTop =
+                zone.y - zone.height / 2;
+
+            const rowBottom =
+                zone.y + zone.height / 2;
+
+            /*
+                The header/footer curtains clip rows while they travel through
+                the panel chrome. Once a row would actually cross the rounded
+                panel's outer edge, hide the row entirely so no text, preview
+                art, card geometry or price icon can leak into the darkened
+                world above/below the modal.
+
+                We intentionally do this in HUD coordinates instead of using a
+                Phaser GeometryMask: the HUD is inverse-scaled against camera
+                zoom, while renderer masks live in a different transform space.
+            */
+            const insidePanelShell =
+                rowTop >= scroll.visualClipTop &&
+                rowBottom <= scroll.visualClipBottom;
+
+            for (const visual of zone.visuals || []) {
+                if (visual?.active) {
+                    visual.setVisible(insidePanelShell);
+                }
+            }
+
             zone.enabled =
-                zone.y + zone.height / 2 >= scroll.viewportTop &&
-                zone.y - zone.height / 2 <= scroll.viewportBottom;
+                insidePanelShell &&
+                rowBottom >= scroll.viewportTop &&
+                rowTop <= scroll.viewportBottom;
         }
 
         if (scroll.thumb) {
@@ -6671,7 +7891,9 @@ class GameScene extends Phaser.Scene {
         /*
             HUD-space clipping curtains. Rows may move continuously under
             these while dragging/wheeling, but can never paint over the menu
-            title or BACK control.
+            title or BACK control. setHubScrollOffset() also hides a row once
+            its bounds would cross the modal's outer rounded edge, preventing
+            any content from leaking above or below the panel itself.
         */
         const topCurtain = this.add.graphics();
         topCurtain.fillStyle(0x0d1724, 1);
@@ -6810,6 +8032,8 @@ class GameScene extends Phaser.Scene {
             viewportTop,
             viewportBottom,
             viewportHeight,
+            visualClipTop: panelTop + 6,
+            visualClipBottom: panelBottom - 6,
             thumb,
             thumbHeight,
             panelBounds: {
@@ -9230,6 +10454,17 @@ class GameScene extends Phaser.Scene {
                     this.saveData.runWards
                         ? ` • SIGIL ×${this.saveData.runWards}`
                         : ""
+                ) +
+                (
+                    this.currentDayPhase
+                        ? ` • ${this.currentDayPhase}`
+                        : ""
+                ) +
+                (
+                    this.currentWeather &&
+                    this.currentWeather !== "CLEAR"
+                        ? ` • ${this.currentWeather}`
+                        : ""
                 )
             );
         }
@@ -9301,6 +10536,20 @@ class GameScene extends Phaser.Scene {
                 this.objectiveSubText
                     .setText(
                         "FOLLOW THE RIFT INDICATOR"
+                    );
+            } else if (this.moonpond) {
+                this.objectiveIcon
+                    .setTexture("moonpondIcon")
+                    .setScale(0.46);
+
+                this.objectiveText
+                    .setText(
+                        "MOONPOND • MANIFESTED"
+                    );
+
+                this.objectiveSubText
+                    .setText(
+                        `${Math.max(0, 3 - (this.saveData.moonpondCastsUsed || 0))} CASTS LEFT • FOLLOW THE POND INDICATOR`
                     );
             } else if (buildSite) {
                 this.objectiveIcon
@@ -9384,8 +10633,9 @@ class GameScene extends Phaser.Scene {
     }
 
 
-    update() {
+    update(time, delta) {
 
+        this.updateMeadowClimate(delta);
         this.updateWorldAtmosphere();
 
         /*
@@ -9678,6 +10928,7 @@ class GameScene extends Phaser.Scene {
         this.updateGhostlotPrompt();
         this.updateCrankhousePrompt();
         this.updateRiftReliquaryPrompt();
+        this.updateMoonpondPrompt();
 
     }
 
@@ -9806,7 +11057,8 @@ const config = {
     scene: [
         GameScene,
         ClaimRunScene,
-        InvasionScene
+        InvasionScene,
+        MoonpondScene
     ]
 
 };
